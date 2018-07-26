@@ -4,7 +4,9 @@ This is a reimplementation of the implementation found [here](https://github.com
 
 I am not confident using tf eager and keras layers so here is the code that works for me.
 
-## How to use it
+## How to use try it
+
+Download the checkpoints from [here](https://correoipn-my.sharepoint.com/:u:/g/personal/hsanchezb1600_alumno_ipn_mx/EdSRX89PwiZCt5AE-cpZRTQB90qs4ZtU44To1VklOETiAA?e=8LHaAo) and place the 'chekpoints' folder at the root of this repository.
 
 Import the model, create an object of Model.
 ```python
@@ -32,4 +34,5 @@ plot_ims(ims)
 
 ## TODO:
 -Implement the training.
--Creates the model to train yolo from scratches having the base model, and the two heads (darknet and yolov2)
+
+-Creates the model to train yolo from scratches having the base model, and the two heads (darknet and yolov2).
