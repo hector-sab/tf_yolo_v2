@@ -14,7 +14,7 @@ from model import Model
 model = Model()
 ```
 
-Load the image to be used. The expected shape by model is [?,im_h,im_w,im_c] where im_h= height,im_w=width,im_c=channels.
+Load the image to be used. The expected shape of im by model is [?,im_h,im_w,im_c] where im_h= height,im_w=width,im_c=channels.
 ```python
 im_path = '../test_im/im3.jpg'
 im = load_im(im_path)
