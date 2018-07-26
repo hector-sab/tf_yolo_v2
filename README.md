@@ -33,6 +33,8 @@ plot_ims(ims)
 ```
 
 ## TODO:
--Implement the training.
+- Implement the training.
 
--Creates the model to train yolo from scratches having the base model, and the two heads (darknet and yolov2).
+- Add NMS.
+
+- Creates the model to train yolo from scratches having the base model, and the two heads (darknet and yolov2).
