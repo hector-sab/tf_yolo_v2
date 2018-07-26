@@ -327,7 +327,7 @@ class Model(Net):
 		coord,lbs,ob_mask,pobj = self.sess.run([self.coord,self.bb_lbs,
 			self.bb_ob_mask,self.pobj],feed_dict={self.inputs:ims})
 
-		return(coord,lbs,ob_mask,None)
+		return(coord,lbs,ob_mask,pobj)
 
 	def __post_model(self):
 		pred = self.last_layer()
