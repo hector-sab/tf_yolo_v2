@@ -2,7 +2,7 @@
 
 This is a reimplementation of the implementation found [here](https://github.com/pmkalshetti/object_detection).
 
-I am not confident using tf eager and keras layers so here is the code that works for me.
+This version does not use tf eager and allow to have the output of multiple images in one batch. However the output is different from the one found in the link above.
 
 ## How to use try it
 
