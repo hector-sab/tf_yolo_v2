@@ -2,6 +2,16 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+def txt2list(path):
+	"""
+	Reads the 'path' file and returns all the lines
+	as a list of strings.
+	"""
+	with open(path,'r') as f:
+		content = f.readlines()
+	lst = [x.strip('\n') for x in content]
+	return(lst)
+
 def draw_output(ims,coord,lbs,ob_mask,pobj=None):
 	"""
 	Draws the bboxes detected in the images

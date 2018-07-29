@@ -9,7 +9,7 @@ Description: Main model of the architecture Yolo v2.
 
 import numpy as np
 import tensorflow as tf
-
+from constants import ANCHORS
 
 def num_gpus():
 	from tensorflow.python.client import device_lib
@@ -26,8 +26,6 @@ else:
 	print('Using CPU')
 
 
-OBJECTS = ['tvmonitor', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 
-          'cow', 'diningtable', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train']
 
 class Net:
 	"""
@@ -178,12 +176,7 @@ class Model(Net):
 		self.verbose = verbose
 		self.CKPT_DIR = ckpt_dir
 
-		self.ANCHORS = np.array(
-			[[0.09112895, 0.06958421],
-			 [0.21102316, 0.16803947],
-			 [0.42625895, 0.26609842],
-			 [0.25476474, 0.49848],
-			 [0.52668947, 0.59138947]])
+		self.ANCHORS = ANCHORS
 		self.NUM_ANCHORS = self.ANCHORS.shape[0]
 		self.NUM_OBJECTS = 20
 		self.MAX_DETECTIONS_PER_IMAGE = 10
@@ -202,6 +195,7 @@ class Model(Net):
 
 		self.IM_H = self.inputs.get_shape()[1].value
 		self.IM_W = self.inputs.get_shape()[2].value
+		self.IM_C = self.inputs.get_shape()[3].value
 
 		self.model = {}
 
@@ -360,6 +354,10 @@ class Model(Net):
 		pobj = tf.sigmoid(pred[...,4])       # Shape [?,13,13,5,1]
 		pclass = tf.nn.softmax(pred[...,5:])   # Shape [?,13,13,5,20]
 
+		#### S: For loss ####
+		self.pclass = tf.identity(pclass)
+		#### E: For loss ####
+
 		# Lets get the bx and by
 		coord_y = tf.range(self.GRID_H)
 		coord_x = tf.range(self.GRID_W)
@@ -387,6 +385,10 @@ class Model(Net):
 		bx = tf.div(bx,tf.constant(self.GRID_W,dtype=tf.float32))
 		by = tf.div(by,tf.constant(self.GRID_H,dtype=tf.float32))
 
+		#### S: For Loss
+		self.xy_norm = tf.concat([tf.expand_dims(bx,axis=1),tf.expand_dims(by,axis=1)],name='xy_norm')
+		#### E: For Loss
+
 		## Now, lets convert it to Image Space
 		bx = tf.multiply(bx,tf.constant(self.IM_W,dtype=tf.float32),name='bx')
 		by = tf.multiply(by,tf.constant(self.IM_H,dtype=tf.float32),name='by')
@@ -406,6 +408,9 @@ class Model(Net):
 		#bw = tf.div(bw,tf.constant(self.GRID_W,dtype=tf.float32))
 		#bh = tf.div(bh,tf.constant(self.GRID_H,dtype=tf.float32))
 
+		#### S: For Loss
+		self.wh_norm = tf.concat([tf.expand_dims(bw,axis=1),tf.expand_dims(bh,axis=1)],name='xy_norm')
+		#### E: For Loss
 		
 		## Now, lets convert it to Image Space
 		bw = tf.multiply(bw,tf.constant(self.IM_W,dtype=tf.float32),name='bw')
