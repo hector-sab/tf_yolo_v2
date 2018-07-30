@@ -198,13 +198,18 @@ class Trainer:
 			self.increase_save_counter = tf.assign(self.save_counter, self.save_counter+1)
 			#self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer)
 			self.saver = tf.train.Saver()
-
-		self.__tensorboard()
+		
+		if tensorboard:
+			self.__tensorboard()
 
 		if init:
 			self.__init_all()
+	def set_tensorboard():
+		self.tensorboard = True
+		self.__tensorboard()
+		print('Tensorboard ON. Dir: {}'.format(self.tb_log))
 
-	def init_grap(self):
+	def init_graph(self):
 		"""
 		External use. Initialize the graph
 		"""
@@ -269,15 +274,8 @@ class Trainer:
 						if verbose:
 							print('Loading {0} to {1}'.format(key,tensor.name))
 						value = reader.get_tensor(key)
-						if find_this == 'save_counter':
-							print('----',value)
 						tensor.load(value,session=self.sess)
 						break
-
-	def __save_ckpt(self):
-		self.sess.run(self.increase_save_counter)
-		self.saver.save(self.sess,self.CKPT_DIR+'ckpt',global_step=self.save_counter)
-
 
 	def __loss(self):
 		#### S: PRED ####
@@ -314,8 +312,8 @@ class Trainer:
 		A_filt = tf.multiply(A_sum,tf.cast(mask,tf.float32))
 		A = tf.reduce_sum(A_filt)
 
-		B_w = tf.pow(tf.sqrt(tf.subtract(w_lbl,w_pred)),tf.constant(2.))
-		B_h = tf.pow(tf.sqrt(tf.subtract(h_lbl,h_pred)),tf.constant(2.))
+		B_w = tf.pow(tf.subtract(tf.sqrt(w_lbl),tf.sqrt(w_pred)),tf.constant(2.))
+		B_h = tf.pow(tf.subtract(tf.sqrt(h_lbl),tf.sqrt(h_pred)),tf.constant(2.))
 		B_sum = tf.add(B_w,B_h)
 		B_filt = tf.multiply(B_sum,tf.cast(mask,tf.float32))
 		B = tf.reduce_sum(B_filt)
@@ -347,16 +345,22 @@ class Trainer:
 		self.merged = tf.summary.merge_all()
 		self.train_writer = tf.summary.FileWriter(self.tb_logdir,self.sess.graph)
 
+	def __save_ckpt(self):
+		a=self.sess.run(self.save_counter)
+		self.sess.run(self.increase_save_counter)
+		b=self.sess.run(self.save_counter)
+		print(a,b)
+		self.saver.save(self.sess,self.CKPT_DIR+'ckpt',global_step=self.save_counter)
+
 	def __sess_run(self,feed_dict,pbar):
 		if self.tensorboard:
 			summary,_,loss = self.sess.run([self.merged,self.optimizer,self.loss],feed_dict=feed_dict)
+			self.train_writer.add_summary(summary,self.global_step)
 		else:
 			_,loss = self.sess.run([self.optimizer,self.loss],feed_dict=feed_dict)
-		pbar.set_description("Processing {:0.2}".format(loss))
+		pbar.set_description("Loss {:0.5}".format(loss))
 
 	def optimize(self,n_iter=None,n_epochs=None,bs=0):
-		LAST_BATCH = None
-
 		if n_iter:
 			pbar = tqdm(range(n_iter))
 			for it in range(n_iter):
@@ -369,6 +373,7 @@ class Trainer:
 			pbar.close()
 
 		elif n_epochs:
+			LAST_BATCH = None
 			total_it_ts = self.train_set.total_it
 			if total_it_ts%bs==0:
 				total_it = total_it_ts//bs

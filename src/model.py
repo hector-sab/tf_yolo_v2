@@ -170,11 +170,14 @@ class Net:
 
 
 class Model(Net):
-	def __init__(self,inputs=None,sess=None,ckpt_dir='../checkpoints/',init=True,verbose=False):
+	def __init__(self,inputs=None,sess=None,ckpt_dir='../checkpoints/',
+		tensorboard=False,tb_log='../tensorboard/yolov2',init=True,verbose=False):
 		# Predefined Values
 		self.NAME = 'model'
 		self.verbose = verbose
 		self.CKPT_DIR = ckpt_dir
+		self.tensorboard = tensorboard
+		self.tb_log = tb_log
 
 		self.ANCHORS = ANCHORS
 		self.NUM_ANCHORS = self.ANCHORS.shape[0]
@@ -202,9 +205,16 @@ class Model(Net):
 		self.__model()
 		self.pred_results = None
 		self.__post_model()
-		self.__tensorboard()
+
+		if self.tensorboard:
+			self.__tensorboard()
 		if init:
 			self.init_graph()
+
+	def set_tensorboard():
+		self.tensorboard = True
+		self.__tensorboard()
+		print('Tensorboard ON. Dir: {}'.format(self.tb_log))
 
 	def init_graph(self):
 		"""
@@ -316,7 +326,7 @@ class Model(Net):
 		"""
 		Draws the graph into tensorboard
 		"""
-		self.writer = tf.summary.FileWriter('../tensorboard/yolov2',self.sess.graph)
+		self.writer = tf.summary.FileWriter(self.tb_log,self.sess.graph)
 
 
 	def predict(self,ims):
