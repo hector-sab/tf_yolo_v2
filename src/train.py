@@ -3,6 +3,7 @@ import warnings
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 import tensorflow as tf
 
 from utils import txt2list
@@ -158,31 +159,109 @@ class Data:
 			im_h (int): Height of the output image
 			im_w (int): Width of the output image
 		"""
-		img = cv2.imread(path)
-		img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-		#img = cv2.resize(img, (im_h, im_w))
-		img = (img / 255.).astype(np.float32)
-		img = np.expand_dims(img, 0)
-		return(img)
+		im = cv2.imread(path)
+		im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+		h = im.shape[0]
+		w = im.shape[1]
+		if h!=self.IM_H or w!=self.IM_W:
+			im = cv2.resize(im, (self.IM_H,self.IM_W))
+		im = (im / 255.).astype(np.float32)
+		im = np.expand_dims(im, 0)
+		return(im)
 
 
 
 class Trainer:
-	def __init__(self,model,train_set,val_set=None,lr=3e-7):
+	def __init__(self,model,train_set,val_set=None,lr=3e-7,tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
+		self.name = 'trainer'
+		self.CKPT_DIR = ckpt_dir
+		self.tb_logdir = tb_logdir
 		self.lr = lr
 		self.train_set = train_set
 
-		self.sess = self.model.sess
 		self.model = model
+		self.sess = self.model.sess
 		self.inputs = self.model.inputs
 
-		self.labels = tf.placeholder(tf.float32,[None,
-			self.model.last_layer().get_shape()[1].value,
-			self.model.last_layer().get_shape()[2].value,
-			self.model.last_layer().get_shape()[3].value])
+		with tf.variable_scope(self.name):
+			self.labels = tf.placeholder(tf.float32,[None,
+				self.model.last_layer().get_shape()[1].value,
+				self.model.last_layer().get_shape()[2].value,
+				self.model.last_layer().get_shape()[3].value,
+				6])
+			self.loss = self.__loss()
+			self.optimizer = self.__optimization()
+		self.__tensorboard()
 
-		self.loss = self.__loss()
-		self.optimizer = self.__optimization()
+		if init:
+			self.__init_all()
+
+	def init_grap(self):
+		"""
+		External use. Initialize the graph
+		"""
+		self.__init_all()
+
+	def __init_all(self):
+		"""
+		Internal use. Initialize the graph.
+		"""
+		self.model.init_graph()
+		self.__init_from_ckpt()
+
+	def __init_from_ckpt(self,verbose=True):
+		"""
+		Initialize everiting from the original weights.
+		"""
+		from tensorflow.python import pywrap_tensorflow
+		file_name = tf.train.latest_checkpoint(self.CKPT_DIR)
+		reader = pywrap_tensorflow.NewCheckpointReader(file_name)
+		var_to_shape_map = reader.get_variable_to_shape_map()
+		keys = list(sorted(var_to_shape_map.keys()))
+		valid_ckpt_names = []
+		for key in keys:
+			if 'OPTIMIZER' in key or 'optimizer' in key or 'counter' in key:
+				split = key.split('/')
+				valid_ckpt_names.append(key)
+
+		tensors = tf.global_variables()
+
+		for tensor in tensors:
+			if 'OPTIMIZER' in tensor.name:
+				tsplit = tensor.name.split('/')
+				if 'conv2d' in tensor.name:
+					tnum = tsplit[3][4:]
+					ttype = tsplit[5]
+
+					if 'Adam_1:0' in tsplit[-1]:
+						uv = 'v'
+					else:
+						uv = 'u'
+
+					find_this = 'conv'+tnum+'/'+ttype+'/.OPTIMIZER_SLOT/model/optimizer/'+uv
+				elif 'power' in tensor.name:
+					find_this = tsplit[-1][:-2]
+				elif 'batch_normalization' in tensor.name:
+					tnum = tsplit[3][4:]
+					ttype = tsplit[5]
+
+					if 'Adam_1:0' in tsplit[-1]:
+						uv = 'v'
+					else:
+						uv = 'u'
+
+					find_this = 'norm'+tnum+'/'+ttype+'/.OPTIMIZER_SLOT/model/optimizer/'+uv
+				
+				for key in keys:
+					if find_this in key:
+						if verbose:
+							print('Loading {0} to {1}'.format(key,tensor.name))
+						value = reader.get_tensor(key)
+						tensor.load(value,session=self.sess)
+						break
+
+
+
 
 	def __loss(self):
 		#### S: PRED ####
@@ -210,7 +289,7 @@ class Trainer:
 		h_lbl = wh_lbl[...,1]
 
 		pobj_lbl = self.labels[...,4] # Shape [?,13,13,5]
-		pclass_lbl = tf.one_hot(self.labels[...,5],self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
+		pclass_lbl = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
 		#### E: LBL ####
 
 		A_x = tf.pow(tf.subtract(x_lbl,x_pred),tf.constant(2.))
@@ -243,17 +322,27 @@ class Trainer:
 		return(loss)
 
 	def __optimization(self):
-		optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
-		return(optimizer)
+		with tf.variable_scope('OPTIMIZER'):
+			optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+			return(optimizer)
+
+	def __tensorboard(self):
+		tf.summary.scalar('loss',self.loss)
+		self.merged = tf.summary.merge_all()
+		self.train_writer = tf.summary.FileWriter(self.tb_logdir,self.sess.graph)
 
 	def optimize(self,n_iter=None,n_epochs=None,bs=0):
 		LAST_BATCH = None
 
 		if n_iter:
+			pbar = tqdm(range(n_iter))
 			for it in range(n_iter):
 				ims,labels = self.train_set.next_batch(bs)
 				feed_dict = {self.inputs:ims,self.labels:labels}
-				self.sess.run(self.optimizer,feed_dict=feed_dict)
+				summary,_ = self.sess.run([self.merged,self.optimizer],feed_dict=feed_dict)
+				#self.train_writer.add_summary(summary,GLOBAL_STEP)
+				pbar.update(1)
+			pbar.close()
 
 		elif n_epochs:
 			total_it_ts = self.train_set.total_it
@@ -265,6 +354,7 @@ class Trainer:
 
 				LAST_BATCH = total_it_ts - batches*bs
 
+			pbar = tqdm(range(n_epochs*total_it))
 			for epoc in range(n_epochs):
 				for it in range(total_it):
 					if LAST_BATCH is None:
@@ -276,5 +366,9 @@ class Trainer:
 							ims,labels = self.train_set.next_batch(LAST_BATCH)
 
 					feed_dict = {self.inputs:ims,self.labels:labels}
-					self.sess.run(self.optimizer,feed_dict=feed_dict)
+					summary,_ = self.sess.run([self.merged,self.optimizer],feed_dict=feed_dict)
+					#self.train_writer.add_summary(summary,GLOBAL_STEP)
+
+					pbar.update(1)
+			pbar.close()
 

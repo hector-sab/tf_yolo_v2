@@ -170,7 +170,7 @@ class Net:
 
 
 class Model(Net):
-	def __init__(self,inputs=None,sess=None,ckpt_dir='../checkpoints/',verbose=False):
+	def __init__(self,inputs=None,sess=None,ckpt_dir='../checkpoints/',init=True,verbose=False):
 		# Predefined Values
 		self.NAME = 'model'
 		self.verbose = verbose
@@ -203,6 +203,13 @@ class Model(Net):
 		self.pred_results = None
 		self.__post_model()
 		self.__tensorboard()
+		if init:
+			self.init_graph()
+
+	def init_graph(self):
+		"""
+		Initialize the values of the tensors of the graph.
+		"""
 		self.sess.run(tf.global_variables_initializer())
 		self.__init_from_ckpt()
 
@@ -309,7 +316,7 @@ class Model(Net):
 		"""
 		Draws the graph into tensorboard
 		"""
-		self.yolo_writer = tf.summary.FileWriter('../tensorboard/yolov2',self.sess.graph)
+		self.writer = tf.summary.FileWriter('../tensorboard/yolov2',self.sess.graph)
 
 
 	def predict(self,ims):
@@ -386,7 +393,7 @@ class Model(Net):
 		by = tf.div(by,tf.constant(self.GRID_H,dtype=tf.float32))
 
 		#### S: For Loss
-		self.xy_norm = tf.concat([tf.expand_dims(bx,axis=1),tf.expand_dims(by,axis=1)],name='xy_norm')
+		self.xy_norm = tf.concat([tf.expand_dims(bx,axis=-1),tf.expand_dims(by,axis=-1)],axis=-1,name='xy_norm')
 		#### E: For Loss
 
 		## Now, lets convert it to Image Space
@@ -409,7 +416,7 @@ class Model(Net):
 		#bh = tf.div(bh,tf.constant(self.GRID_H,dtype=tf.float32))
 
 		#### S: For Loss
-		self.wh_norm = tf.concat([tf.expand_dims(bw,axis=1),tf.expand_dims(bh,axis=1)],name='xy_norm')
+		self.wh_norm = tf.concat([tf.expand_dims(bw,axis=-1),tf.expand_dims(bh,axis=-1)],axis=-1,name='xy_norm')
 		#### E: For Loss
 		
 		## Now, lets convert it to Image Space
