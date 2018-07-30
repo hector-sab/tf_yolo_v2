@@ -9,6 +9,8 @@ import tensorflow as tf
 from utils import txt2list
 from constants import ANCHORS
 
+# TODO: Fix __tensorboard dependency 
+
 class Data:
 	"""
 	Retreives the data for training. We are going to use 
@@ -102,7 +104,6 @@ class Data:
 
 				# In which anchor they are located
 				ANCH_ind = self.__select_anchor(np.array([h,w]))
-				print(GH_ind,GW_ind,ANCH_ind)
 				out[GH_ind,GW_ind,ANCH_ind] = [xc,yc,w,h,1,clss]
 			return(out)
 
@@ -172,9 +173,10 @@ class Data:
 
 
 class Trainer:
-	def __init__(self,model,train_set,val_set=None,lr=3e-7,tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
+	def __init__(self,model,train_set,val_set=None,lr=3e-7,tensorboard=False,tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
 		self.name = 'trainer'
 		self.CKPT_DIR = ckpt_dir
+		self.tensorboard = tensorboard
 		self.tb_logdir = tb_logdir
 		self.lr = lr
 		self.train_set = train_set
@@ -184,6 +186,7 @@ class Trainer:
 		self.inputs = self.model.inputs
 
 		with tf.variable_scope(self.name):
+			self.global_step = tf.train.get_or_create_global_step()
 			self.labels = tf.placeholder(tf.float32,[None,
 				self.model.last_layer().get_shape()[1].value,
 				self.model.last_layer().get_shape()[2].value,
@@ -191,6 +194,11 @@ class Trainer:
 				6])
 			self.loss = self.__loss()
 			self.optimizer = self.__optimization()
+			self.save_counter = tf.Variable(0, trainable=False, name='save_counter')
+			self.increase_save_counter = tf.assign(self.save_counter, self.save_counter+1)
+			#self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer)
+			self.saver = tf.train.Saver()
+
 		self.__tensorboard()
 
 		if init:
@@ -209,7 +217,7 @@ class Trainer:
 		self.model.init_graph()
 		self.__init_from_ckpt()
 
-	def __init_from_ckpt(self,verbose=True):
+	def __init_from_ckpt(self,verbose=False):
 		"""
 		Initialize everiting from the original weights.
 		"""
@@ -220,14 +228,14 @@ class Trainer:
 		keys = list(sorted(var_to_shape_map.keys()))
 		valid_ckpt_names = []
 		for key in keys:
-			if 'OPTIMIZER' in key or 'optimizer' in key or 'counter' in key:
-				split = key.split('/')
+			if ('OPTIMIZER' in key or 'optimizer' in key 
+				or 'save_counter' in key or 'optimizer_step'):
 				valid_ckpt_names.append(key)
 
 		tensors = tf.global_variables()
 
 		for tensor in tensors:
-			if 'OPTIMIZER' in tensor.name:
+			if self.name in tensor.name:
 				tsplit = tensor.name.split('/')
 				if 'conv2d' in tensor.name:
 					tnum = tsplit[3][4:]
@@ -251,16 +259,24 @@ class Trainer:
 						uv = 'u'
 
 					find_this = 'norm'+tnum+'/'+ttype+'/.OPTIMIZER_SLOT/model/optimizer/'+uv
-				
+				elif 'global_step' in tensor.name:
+					find_this = 'optimizer_step'
+				elif 'save_counter' in tensor.name:
+					find_this = 'save_counter'
+
 				for key in keys:
 					if find_this in key:
 						if verbose:
 							print('Loading {0} to {1}'.format(key,tensor.name))
 						value = reader.get_tensor(key)
+						if find_this == 'save_counter':
+							print('----',value)
 						tensor.load(value,session=self.sess)
 						break
 
-
+	def __save_ckpt(self):
+		self.sess.run(self.increase_save_counter)
+		self.saver.save(self.sess,self.CKPT_DIR+'ckpt',global_step=self.save_counter)
 
 
 	def __loss(self):
@@ -323,13 +339,20 @@ class Trainer:
 
 	def __optimization(self):
 		with tf.variable_scope('OPTIMIZER'):
-			optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+			optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss,global_step=self.global_step)
 			return(optimizer)
 
 	def __tensorboard(self):
 		tf.summary.scalar('loss',self.loss)
 		self.merged = tf.summary.merge_all()
 		self.train_writer = tf.summary.FileWriter(self.tb_logdir,self.sess.graph)
+
+	def __sess_run(self,feed_dict,pbar):
+		if self.tensorboard:
+			summary,_,loss = self.sess.run([self.merged,self.optimizer,self.loss],feed_dict=feed_dict)
+		else:
+			_,loss = self.sess.run([self.optimizer,self.loss],feed_dict=feed_dict)
+		pbar.set_description("Processing {:0.2}".format(loss))
 
 	def optimize(self,n_iter=None,n_epochs=None,bs=0):
 		LAST_BATCH = None
@@ -339,8 +362,9 @@ class Trainer:
 			for it in range(n_iter):
 				ims,labels = self.train_set.next_batch(bs)
 				feed_dict = {self.inputs:ims,self.labels:labels}
-				summary,_ = self.sess.run([self.merged,self.optimizer],feed_dict=feed_dict)
-				#self.train_writer.add_summary(summary,GLOBAL_STEP)
+				self.__sess_run(feed_dict,pbar)
+				if it%10:
+					self.__save_ckpt()
 				pbar.update(1)
 			pbar.close()
 
@@ -366,9 +390,9 @@ class Trainer:
 							ims,labels = self.train_set.next_batch(LAST_BATCH)
 
 					feed_dict = {self.inputs:ims,self.labels:labels}
-					summary,_ = self.sess.run([self.merged,self.optimizer],feed_dict=feed_dict)
-					#self.train_writer.add_summary(summary,GLOBAL_STEP)
-
+					self.__sess_run(feed_dict,pbar)
+					if it%10:
+						self.__save_ckpt()
 					pbar.update(1)
 			pbar.close()
 
