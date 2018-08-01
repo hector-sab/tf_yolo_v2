@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 from model import Model
 from utils import load_im,draw_output,plot_ims
 

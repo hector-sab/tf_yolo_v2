@@ -89,7 +89,7 @@ class Data:
 				x_max = float(line[6])
 				y_max = float(line[7])
 
-				xc,yc = (y_min+y_max)/2.,(x_min+x_max)/2.
+				yc,xc = (y_min+y_max)/2.,(x_min+x_max)/2.
 				h, w = y_max - y_min, x_max - x_min
 
 				# Normalize

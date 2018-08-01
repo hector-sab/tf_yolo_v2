@@ -20,13 +20,15 @@ def draw_output(ims,coord,lbs,ob_mask,pobj=None):
 				drawn. Shape [?,im_h,im_w,im_c]
 		coord (np.array): It should contain the coordinates of the
 				detected objects. Shape [?,GRID_H,GRID_W,NUM_ANCHORS,4].
-				'4' stands for [by1,bx1,by2,bx2]
+				'4' stands for [by1,bx1,by2,bx2]. Top left, bottom rights
 		lbs (np.array): It should contain the label of the bounding box detected.
 				Shape [?,GRID_H,GRID_W,NUM_ANCHORS]
 		ob_mask (np.array): It should contain the indicator if an element in the grid
 				actually contains an object or not.
 		pobj (None | np.array): If different than None, it indicates the probability of
 				each object of being that object. Shape [?,GRID_H,GRID_W,NUM_ANCHORS]
+
+	Note: Everything should be denormalized at this point.
 	"""
 	num_ims = ims.shape[0]
 	ims_out = np.zeros_like(ims)
