@@ -173,7 +173,8 @@ class Data:
 
 
 class Trainer:
-	def __init__(self,model,train_set,val_set=None,lr=3e-7,tensorboard=False,tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
+	def __init__(self,model,train_set,val_set=None,lr=1e-6,tensorboard=False,
+		tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
 		self.name = 'trainer'
 		self.CKPT_DIR = ckpt_dir
 		self.tensorboard = tensorboard
@@ -349,7 +350,7 @@ class Trainer:
 		a=self.sess.run(self.save_counter)
 		self.sess.run(self.increase_save_counter)
 		b=self.sess.run(self.save_counter)
-		print(a,b)
+		#print(a,b)
 		self.saver.save(self.sess,self.CKPT_DIR+'ckpt',global_step=self.save_counter)
 
 	def __sess_run(self,feed_dict,pbar):
@@ -367,7 +368,7 @@ class Trainer:
 				ims,labels = self.train_set.next_batch(bs)
 				feed_dict = {self.inputs:ims,self.labels:labels}
 				self.__sess_run(feed_dict,pbar)
-				if it%10:
+				if it%10==0:
 					self.__save_ckpt()
 				pbar.update(1)
 			pbar.close()
@@ -384,7 +385,7 @@ class Trainer:
 				LAST_BATCH = total_it_ts - batches*bs
 
 			pbar = tqdm(range(n_epochs*total_it))
-			for epoc in range(n_epochs):
+			for epoch in range(n_epochs):
 				for it in range(total_it):
 					if LAST_BATCH is None:
 						ims,labels = self.train_set.next_batch(bs)
@@ -396,8 +397,8 @@ class Trainer:
 
 					feed_dict = {self.inputs:ims,self.labels:labels}
 					self.__sess_run(feed_dict,pbar)
-					if it%10:
-						self.__save_ckpt()
 					pbar.update(1)
+				if epoch%2==0:
+					self.__save_ckpt()
 			pbar.close()
 

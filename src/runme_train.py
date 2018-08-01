@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 import tensorflow as tf
 from model import Model
 from train import Trainer,Data
