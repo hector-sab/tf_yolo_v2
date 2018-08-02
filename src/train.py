@@ -477,7 +477,7 @@ class Trainer:
 					feed_dict = {self.inputs:ims,self.labels:labels}
 					self.__sess_run(feed_dict,pbar)
 					pbar.update(1)
-				if epoch%5==0:
+				if (epoch+1)%5==0:
 					self.__save_ckpt()
 			pbar.close()
 
