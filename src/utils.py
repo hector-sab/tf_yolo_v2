@@ -1,6 +1,98 @@
 import cv2
 import numpy as np
+import tensorflow as tf
 import matplotlib.pyplot as plt
+
+def predC2grid(x,y,grid_w=13,grid_h=13):
+	"""
+	Converts from predicted centroid in cell to grid space
+	Args:
+		x,y (tf.Tensor): Tensor containing the values
+			to be converted with the shape	[?,13,13,5]
+		grid_h|w (int): Indicates the shape of the grid
+	"""
+	# Lets get the bx and by
+	coord_x = tf.range(grid_w)
+	coord_y = tf.range(grid_h)
+
+	Cx,Cy = tf.meshgrid(coord_x,coord_y)
+	Cx = tf.cast(Cx,tf.float32)
+	Cy = tf.cast(Cy,tf.float32)
+
+	## In here we are going to condition the Cx,Cy so instead of being of
+	## shape [13,13] it will add an extra dimension at the end so it can be
+	## broadcasted with x,y and summed up happily
+	Cx = tf.reshape(Cx,[grid_h,grid_w,1])
+	Cy = tf.reshape(Cy,[grid_h,grid_w,1])
+
+	Gx = tf.add(x,Cx)
+	Gy = tf.add(y,Cy)
+
+	return(Gx,Gy)
+
+def grid2norm(x,y,grid_w=13,grid_h=13):
+	"""
+	Converts grid space into normalized space [0,1]
+	Args:
+		x,y (tf.Tensor): Tensor containing the values
+			to be normalized with the shape	[?,13,13,5]
+		grid_h|w (int): Indicates the shape of the grid
+	"""
+	Nx = tf.div(x,tf.constant(grid_w,dtype=tf.float32))
+	Ny = tf.div(y,tf.constant(grid_h,dtype=tf.float32))
+
+	return(Nx,Ny)
+
+def norm2imspace(x,y,im_w=416,im_h=416):
+	"""
+	Converts from norm space to image space 
+	Args:
+		x,y (tf.Tensor): Tensor containing the values
+			to be normalized with the shape	[?,13,13,5]
+		im_h|w (int): Indicates the shape of the image
+	"""
+	Ix = tf.multiply(x,tf.constant(im_w,dtype=tf.float32))
+	Iy = tf.multiply(y,tf.constant(im_w,dtype=tf.float32))
+
+	return(Ix,Iy)
+
+def predS2grid(w,h,anchors):
+	"""
+	Converts from norm space to image space 
+	Args:
+		w,h (tf.Tensor): Tensor containing the values
+			to be normalized with the shape	[?,13,13,5]
+		anchors (np.array): Contains the shape of the anchors
+	"""
+	Pw = tf.cast(tf.constant(anchors[:,1]),tf.float32,name='Pw')
+	Gw = tf.multiply(w,Pw)
+
+	Ph = tf.cast(tf.constant(anchors[:,0]),tf.float32,name='Ph')
+	Gh = tf.multiply(h,Ph)
+
+	return(Gw,Gh)
+
+def pred2coord(x,y,w,h):
+	"""
+	Converts from centroid/shape to 2-points coordinates.
+	Inputs:
+		x,y,w,h (tf.Tensor): Contains the location of the bounding box
+			as in form of the centroid (xy) and its shape (w,h). Shape
+			of each one of them: [?,13,13,5]
+	Output:
+		coord (tf.Tensor): Returns the 2-points coordinates of the bounding
+			box containing the object. Shape [?,13,13,5,4] where '4' is 
+			[y_top,x_left,y_bottom,x_right]
+	"""
+	centroid = tf.concat([tf.expand_dims(y,axis=-1),tf.expand_dims(x,axis=-1)],axis=-1)
+	shape = tf.concat([tf.expand_dims(h,axis=-1),tf.expand_dims(w,axis=-1)],axis=-1)
+
+	bbox_min = centroid - (shape//2)
+	bbox_max = centroid + (shape//2)
+
+	coord = tf.concat([bbox_min[...,0:1], bbox_min[...,1:2], bbox_max[...,0:1], bbox_max[...,1:2]], axis=-1)
+
+	return(coord)
 
 def txt2list(path):
 	"""

@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
 
-from utils import txt2list
+import utils as ut
 from constants import ANCHORS
 
 # TODO: Fix __tensorboard dependency 
@@ -30,8 +30,8 @@ class Data:
 		self.IM_H = im_h
 		self.IM_W = im_w
 
-		self.ims_paths = txt2list(ims_paths_f)
-		self.lbs_paths = txt2list(lbs_paths_f)
+		self.ims_paths = ut.txt2list(ims_paths_f)
+		self.lbs_paths = ut.txt2list(lbs_paths_f)
 		if len(self.ims_paths)!=len(self.lbs_paths):
 			msg = 'ims_paths ({0}) has not the same elements than lbs_paths ({1})'.format(
 				len(self.ims_paths),len(self.lbs_paths))
@@ -173,7 +173,8 @@ class Data:
 
 
 class Trainer:
-	def __init__(self,model,train_set,val_set=None,lr=3e-7,tensorboard=False,tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
+	def __init__(self,model,train_set,val_set=None,lr=3e-7,tensorboard=False,
+		tb_logdir='../tensorboard/train/',ckpt_dir='../checkpoints/',init=True):
 		self.name = 'trainer'
 		self.CKPT_DIR = ckpt_dir
 		self.tensorboard = tensorboard
@@ -185,6 +186,11 @@ class Trainer:
 		self.sess = self.model.sess
 		self.inputs = self.model.inputs
 
+		self.GRID_H = self.model.GRID_H
+		self.GRID_W = self.model.GRID_W
+		self.IM_H = self.model.IM_H
+		self.IM_W = self.model.IM_W
+
 		with tf.variable_scope(self.name):
 			self.global_step = tf.train.get_or_create_global_step()
 			self.labels = tf.placeholder(tf.float32,[None,
@@ -192,7 +198,7 @@ class Trainer:
 				self.model.last_layer().get_shape()[2].value,
 				self.model.last_layer().get_shape()[3].value,
 				6])
-			self.loss = self.__loss()
+			self.loss = self.__loss2()
 			self.optimizer = self.__optimization()
 			self.save_counter = tf.Variable(0, trainable=False, name='save_counter')
 			self.increase_save_counter = tf.assign(self.save_counter, self.save_counter+1)
@@ -204,6 +210,7 @@ class Trainer:
 
 		if init:
 			self.__init_all()
+
 	def set_tensorboard():
 		self.tensorboard = True
 		self.__tensorboard()
@@ -279,18 +286,20 @@ class Trainer:
 
 	def __loss(self):
 		#### S: PRED ####
-		mask = self.model.bb_ob_mask # Shape [?,13,13,5]
+		pred = self.model.pred_for_loss
 
-		xy_norm_pred = self.model.xy_norm # Shape [?,13,13,5,2]
-		x_pred = xy_norm_pred[...,0]
-		y_pred = xy_norm_pred[...,1]
+		# Normalized centroid
+		x_pred = pred[...,0]
+		y_pred = pred[...,1]
 
-		wh_norm_pred = self.model.wh_norm # Shape [?,13,13,5,2]
-		w_pred = wh_norm_pred[...,0]
-		h_pred = wh_norm_pred[...,1]
+		# Normalized shape
+		w_pred = pred[...,2]
+		h_pred = pred[...,3]
 
-		pobj_pred = self.model.pobj # Shape [?,13,13,5]
-		pclass_pred = self.model.pclass # Shape [?,13,13,5,25]
+		mask = pred[...,4] # Shape [?,13,13,5] as tf.float32
+		pobj_pred = self.model.bb_pobj # Shape [?,13,13,5]
+
+		pclass_pred = pred[...,5:] # Shape [?,13,13,5,20]
 		#### E: PRED ####
 
 		#### S: LBL ####
@@ -309,21 +318,21 @@ class Trainer:
 		A_x = tf.pow(tf.subtract(x_lbl,x_pred),tf.constant(2.))
 		A_y = tf.pow(tf.subtract(y_lbl,y_pred),tf.constant(2.))
 		A_sum = tf.add(A_x,A_y)
-		A_filt = tf.multiply(A_sum,tf.cast(mask,tf.float32))
+		A_filt = tf.multiply(A_sum,mask)
 		A = tf.reduce_sum(A_filt)
 
 		B_w = tf.pow(tf.subtract(tf.sqrt(w_lbl),tf.sqrt(w_pred)),tf.constant(2.))
 		B_h = tf.pow(tf.subtract(tf.sqrt(h_lbl),tf.sqrt(h_pred)),tf.constant(2.))
 		B_sum = tf.add(B_w,B_h)
-		B_filt = tf.multiply(B_sum,tf.cast(mask,tf.float32))
+		B_filt = tf.multiply(B_sum,mask)
 		B = tf.reduce_sum(B_filt)
 
 		C_sub = tf.pow(tf.subtract(pobj_lbl,pobj_pred),tf.constant(2.))
-		C_filt = tf.multiply(C_sub,tf.cast(mask,tf.float32))
+		C_filt = tf.multiply(C_sub,mask)
 		C = tf.reduce_sum(C_filt)
 
 		D_sub = tf.pow(tf.subtract(pobj_lbl,pobj_pred),tf.constant(2.))
-		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(mask),tf.float32))
+		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(mask,tf.bool)),tf.float32))
 		D = tf.reduce_sum(D_filt)
 
 		#E = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_lbl,logits=pclass_pred)
@@ -333,6 +342,76 @@ class Trainer:
 		E = tf.reduce_sum(E_filt)
 
 		loss = A + B + C + D + E
+		return(loss)
+
+	def __loss2(self):
+		####
+		self.lamb_coord = tf.placeholder_with_default(5.0,[])
+		self.lamb_noobj = tf.placeholder_with_default(0.5,[])
+		####
+		
+		#### S: PRED ####
+		pred = self.model.pred_for_loss
+
+		# Normalized centroid
+		x_pred = pred[...,0]
+		y_pred = pred[...,1]
+
+		# Normalized shape
+		w_pred = pred[...,2]
+		h_pred = pred[...,3]
+		
+		bb_coord_pred = ut.pred2coord(x_pred,y_pred,w_pred,h_pred)
+
+		mask = pred[...,4] # Shape [?,13,13,5] as tf.float32
+		pobj_pred = self.model.bb_pobj # Shape [?,13,13,5]
+
+		pclass_pred = pred[...,5:] # Shape [?,13,13,5,20]
+		#### E: PRED ####
+
+		#### S: LBL ####
+		xy_gt = self.labels[...,0:2] # Shape [?,13,13,5,2]
+		x_gt = xy_gt[...,0]
+		y_gt = xy_gt[...,1]
+
+		x_gt,y_gt = ut.predC2grid(x_gt,y_gt,self.GRID_W,self.GRID_H)
+		x_gt,y_gt = ut.grid2norm(x_gt,y_gt,self.GRID_W,self.GRID_H)
+
+		wh_gt = self.labels[...,2:4] # Shape [?,13,13,5,2]
+		w_gt = wh_gt[...,0]
+		h_gt = wh_gt[...,1]
+
+		pobj_gt = self.labels[...,4] # Shape [?,13,13,5]
+		pclass_gt = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
+		#### E: LBL ####
+
+		A_x = tf.pow(tf.subtract(x_gt,x_pred),tf.constant(2.))
+		A_y = tf.pow(tf.subtract(y_gt,y_pred),tf.constant(2.))
+		A_sum = tf.add(A_x,A_y)
+		A_filt = tf.multiply(A_sum,mask)
+		A = tf.reduce_mean(A_filt)
+
+		B_w = tf.pow(tf.subtract(tf.sqrt(w_gt),tf.sqrt(w_pred)),tf.constant(2.))
+		B_h = tf.pow(tf.subtract(tf.sqrt(h_gt),tf.sqrt(h_pred)),tf.constant(2.))
+		B_sum = tf.add(B_w,B_h)
+		B_filt = tf.multiply(B_sum,mask)
+		B = tf.reduce_mean(B_filt)
+
+		C_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
+		C_filt = tf.multiply(C_sub,mask)
+		C = tf.reduce_mean(C_filt)
+
+		D_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
+		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(mask,tf.bool)),tf.float32))
+		D = tf.reduce_mean(D_filt)
+
+		#E = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_lbl,logits=pclass_pred)
+		E_closs = tf.pow(tf.subtract(pclass_gt,pclass_pred),tf.constant(2.))
+		E_sum = tf.reduce_sum(E_closs,axis=-1)
+		E_filt = tf.multiply(E_sum,tf.cast(mask,tf.float32))
+		E = tf.reduce_mean(E_filt)
+
+		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
 		return(loss)
 
 	def __optimization(self):

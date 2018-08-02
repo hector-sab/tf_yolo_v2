@@ -10,6 +10,7 @@ Description: Main model of the architecture Yolo v2.
 import numpy as np
 import tensorflow as tf
 from constants import ANCHORS
+import utils as ut
 
 def num_gpus():
 	from tensorflow.python.client import device_lib
@@ -335,8 +336,8 @@ class Model(Net):
 		"""
 		# Use __post_model2
 		# TODO: Fix pobj to return the prob of the detected objects
-		coord,lbs,ob_mask,pobj = self.sess.run([self.coord,self.bb_lbs,
-			self.bb_ob_mask,self.pobj],feed_dict={self.inputs:ims})
+		coord,lbs,ob_mask,pobj = self.sess.run([self.bb_coord,self.bb_lbs,
+			self.bb_mask,self.bb_pobj],feed_dict={self.inputs:ims})
 
 		return(coord,lbs,ob_mask,pobj)
 
@@ -368,71 +369,41 @@ class Model(Net):
 		tw = twh[...,0]
 		th = twh[...,1]
 
-		pobj = tf.sigmoid(pred[...,4])       # Shape [?,13,13,5,1]
-		pclass = tf.nn.softmax(pred[...,5:])   # Shape [?,13,13,5,20]
+		pobj = tf.sigmoid(pred[...,4])       # Shape [?,13,13,5,1] Prob of an object in the cell
+		pclass = tf.nn.softmax(pred[...,5:])   # Shape [?,13,13,5,20] Prob of the classes
 
-		#### S: For loss ####
-		self.pclass = tf.identity(pclass)
-		#### E: For loss ####
-
-		# Lets get the bx and by
-		coord_y = tf.range(self.GRID_H)
-		coord_x = tf.range(self.GRID_W)
-
-		Cx,Cy = tf.meshgrid(coord_x,coord_y)
-		Cx = tf.cast(Cx,tf.float32)
-		Cy = tf.cast(Cy,tf.float32)
-		
 		##### Note: From here, everything could be in less lines.
 		#####       Instead of treat x,y separately, stack them and
 		#####       do a single operation for both.
 
-		## In here we are going to condition the Cx,Cy so instead of being of
-		## shape [13,13] it will add an extra dimension at the end so it can be
-		## broadcasted with tx,ty and summed up happily
-		Cx = tf.reshape(Cx,[self.GRID_H,self.GRID_W,1])
-		Cy = tf.reshape(Cy,[self.GRID_H,self.GRID_W,1])
-
-		bx = tf.add(tx,Cx)
-		by = tf.add(ty,Cy)
-
+		# Let's get the correct location of the centroid. Instead of being locations
+		# for cell, they will be location in the whole grid.
+		bx,by = ut.predC2grid(tx,ty,self.GRID_W,self.GRID_H)
 
 		# At this point bx and by are in Grid Space, lets convert it to Image space
 		## First lets normalize it, [0,1]
-		bx = tf.div(bx,tf.constant(self.GRID_W,dtype=tf.float32))
-		by = tf.div(by,tf.constant(self.GRID_H,dtype=tf.float32))
+		bx,by = ut.grid2norm(bx,by,self.GRID_W,self.GRID_H)
 
-		#### S: For Loss
-		self.xy_norm = tf.concat([tf.expand_dims(bx,axis=-1),tf.expand_dims(by,axis=-1)],axis=-1,name='xy_norm')
-		#### E: For Loss
+		#### S: For loss ####
+		xy_norm = tf.concat([tf.expand_dims(bx,axis=-1),tf.expand_dims(by,axis=-1)],axis=-1,name='xy_norm')
+		#### E: For loss ####
 
 		## Now, lets convert it to Image Space
-		bx = tf.multiply(bx,tf.constant(self.IM_W,dtype=tf.float32),name='bx')
-		by = tf.multiply(by,tf.constant(self.IM_H,dtype=tf.float32),name='by')
-
-		bb_centroid = tf.concat([tf.expand_dims(by,axis=-1),tf.expand_dims(bx,axis=-1)],axis=-1,name='bb_centroid_yx')
-
+		bx,by = ut.norm2imspace(bx,by,self.IM_W,self.IM_H)
 
 		# Lets get bw,bh now
-		Pw = tf.cast(tf.constant(self.ANCHORS[:,1]),tf.float32,name='Pw')
-		bw = tf.multiply(tw,Pw)
-
-		Ph = tf.cast(tf.constant(self.ANCHORS[:,0]),tf.float32,name='Ph')
-		bh = tf.multiply(th,Ph)
+		bw,bh = ut.predS2grid(tw,th,self.ANCHORS)
 
 		# At this point bw and bh are in Grid Space, lets convert it to Image space
 		## First lets normalize it, [0,1]
-		#bw = tf.div(bw,tf.constant(self.GRID_W,dtype=tf.float32))
-		#bh = tf.div(bh,tf.constant(self.GRID_H,dtype=tf.float32))
-
-		#### S: For Loss
-		self.wh_norm = tf.concat([tf.expand_dims(bw,axis=-1),tf.expand_dims(bh,axis=-1)],axis=-1,name='xy_norm')
-		#### E: For Loss
+		#bw,bh = ut.grid2norm(bw,bh,self.GRID_W,self.GRID_H)
 		
+		#### S: For loss ####
+		wh_norm = tf.concat([tf.expand_dims(bw,axis=-1),tf.expand_dims(bh,axis=-1)],axis=-1,name='xy_norm')
+		#### E: For loss ####
+
 		## Now, lets convert it to Image Space
-		bw = tf.multiply(bw,tf.constant(self.IM_W,dtype=tf.float32),name='bw')
-		bh = tf.multiply(bh,tf.constant(self.IM_H,dtype=tf.float32),name='bh')
-		bb_shape = tf.concat([tf.expand_dims(bh,axis=-1),tf.expand_dims(bw,axis=-1)],axis=-1,name='bb_shape_hw')
+		bw,bh = ut.norm2imspace(bw,bh,self.IM_W,self.IM_H)
 
 		# Lets get the class with maximum prob
 		self.bb_lbs = tf.argmax(pclass,axis=-1,name='lbs')
@@ -440,18 +411,16 @@ class Model(Net):
 
 		# Lets make a mask to identify which of all the cells actually have 
 		# a detected object
-		ob_mask = tf.greater(pobj,tf.constant(self.THRESHOLD_OUT_PROB))
+		self.bb_mask = tf.greater(pobj,tf.constant(self.THRESHOLD_OUT_PROB))
 		#ob_mask = tf.multiply(tf.cast(ob_mask,tf.float32),pobj)
-		self.bb_ob_mask = tf.reshape(ob_mask,[-1,self.GRID_H,self.GRID_W,self.NUM_ANCHORS],name='bb_ob_mask')
-
-
-		# A final touch, lets make available the prob of each object
-		self.pobj = tf.identity(pobj)
-
-
 
 		##### Lets just give coordinates
-		bbox_min = bb_centroid - (bb_shape//2)
-		bbox_max = bb_centroid + (bb_shape//2)
+		self.bb_coord = ut.pred2coord(bx,by,bw,bh)
 
-		self.coord = tf.concat([bbox_min[...,0:1], bbox_min[...,1:2], bbox_max[...,0:1], bbox_max[...,1:2]], axis=-1)
+		# A final touch, lets make available the prob of each object
+		self.bb_pobj = tf.identity(pobj)
+
+		#### S: for loss
+		self.pred_for_loss = tf.concat([xy_norm,wh_norm,
+			tf.cast(tf.expand_dims(self.bb_mask,axis=-1),tf.float32),pclass],axis=-1)
+		#### E: for loss
