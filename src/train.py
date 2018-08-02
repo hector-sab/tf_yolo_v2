@@ -405,12 +405,13 @@ class Trainer:
 		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(mask,tf.bool)),tf.float32))
 		D = tf.reduce_mean(D_filt)
 
-		#E = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_lbl,logits=pclass_pred)
-		E_closs = tf.pow(tf.subtract(pclass_gt,pclass_pred),tf.constant(2.))
-		E_sum = tf.reduce_sum(E_closs,axis=-1)
-		E_filt = tf.multiply(E_sum,tf.cast(mask,tf.float32))
-		E = tf.reduce_mean(E_filt)
-
+		E_ce = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_gt,logits=pclass_pred)
+		E = tf.reduce_mean(E_ce)
+		#E_closs = tf.pow(tf.subtract(pclass_gt,pclass_pred),tf.constant(2.))
+		#E_sum = tf.reduce_sum(E_closs,axis=-1)
+		#E_filt = tf.multiply(E_sum,tf.cast(mask,tf.float32))
+		#E = tf.reduce_mean(E_filt)
+		
 		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
 		return(loss)
 
