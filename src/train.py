@@ -489,7 +489,8 @@ class Trainer:
 		E = tf.reduce_mean(E_filt)
 		"""
 		E_sq = tf.square(tf.subtract(pclass_gt,pclass_pred))
-		E_mask = tf.multiply(mask_gt,E_sq)
+		E_sum = tf.reduce_sum(E_sq,axis=-1)
+		E_mask = tf.multiply(mask_gt,E_sum)
 		E = tf.reduce_mean(E_mask)
 
 		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
