@@ -417,8 +417,9 @@ class Trainer:
 
 	def __loss3(self):
 		####
-		self.lamb_coord = tf.placeholder_with_default(5.0,[])
-		self.lamb_noobj = tf.placeholder_with_default(0.5,[])
+		self.lamb_coord = tf.placeholder_with_default(1.0,[])
+		self.lamb_obj = tf.placeholder_with_default(5.0,[])
+		self.lamb_noobj = tf.placeholder_with_default(1.0,[])
 		####
 		
 		#### S: PRED ####
@@ -475,12 +476,14 @@ class Trainer:
 		B = tf.reduce_mean(B_filt)
 
 		C_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
+		#C_mask = tf.multiply(mask_gt,mask_iou)
 		C_filt = tf.multiply(mask_gt,C_sub)
 		C = tf.reduce_mean(C_filt)
 
 		D_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
-		D_mask = tf.logical_not(tf.cast(mask_gt,tf.bool))
-		D_filt = tf.multiply(D_sub,tf.cast(D_mask,tf.float32))
+		D_mask = tf.multiply(tf.cast(tf.logical_not(tf.cast(mask_gt,tf.bool)),tf.float32),
+			tf.cast(tf.logical_not(mask_iou),tf.float32))
+		D_filt = tf.multiply(D_sub,D_mask)
 		D = tf.reduce_mean(D_filt)
 
 		"""
@@ -493,7 +496,8 @@ class Trainer:
 		E_mask = tf.multiply(mask_gt,E_sum)
 		E = tf.reduce_mean(E_mask)
 
-		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
+		loss = (tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + 
+			tf.multiply(self.lamb_obj,C) + tf.multiply(self.lamb_noobj,D) + E)
 
 		return(loss)
 
