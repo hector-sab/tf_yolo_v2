@@ -456,7 +456,7 @@ class Trainer:
 		pclass_gt = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
 		#### E: LBL ####
 
-		iou = ut.iou(pred,self.labels[...,:4])
+		iou = ut.iou(pred,tf.stack([x_gt,y_gt,w_gt,h_gt],axis=-1))
 		mask_iou = tf.greater(iou,tf.constant(ct.TH_IOU))
 
 		full_mask = tf.multiply(mask,tf.cast(mask_iou,tf.float32))
