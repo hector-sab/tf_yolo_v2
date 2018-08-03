@@ -478,7 +478,7 @@ class Trainer:
 		C = tf.reduce_mean(C_filt)
 
 		D_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
-		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(mask,tf.bool)),tf.float32))
+		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(full_mask,tf.bool)),tf.float32))
 		D = tf.reduce_mean(D_filt)
 
 		E_ce = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_gt,logits=pclass_pred)
