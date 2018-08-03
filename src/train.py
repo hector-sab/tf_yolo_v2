@@ -431,10 +431,8 @@ class Trainer:
 		# Normalized shape
 		w_pred = pred[...,2]
 		h_pred = pred[...,3]
-		
-		bb_coord_pred = ut.pred2coord(x_pred,y_pred,w_pred,h_pred)
 
-		mask = pred[...,4] # Shape [?,13,13,5] as tf.float32
+		mask_pred = pred[...,4] # Shape [?,13,13,5] as tf.float32
 		pobj_pred = self.model.bb_pobj # Shape [?,13,13,5]
 
 		pclass_pred = pred[...,5:] # Shape [?,13,13,5,20]
@@ -453,38 +451,47 @@ class Trainer:
 		h_gt = wh_gt[...,1]
 
 		pobj_gt = self.labels[...,4] # Shape [?,13,13,5]
+		mask_gt = tf.identity(pobj_gt)
 		pclass_gt = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
 		#### E: LBL ####
 
 		iou = ut.iou(pred,tf.stack([x_gt,y_gt,w_gt,h_gt],axis=-1))
+		#print(iou)
+		#print(tf.reduce_max(iou,axis=-1,keepdims=True))
 		mask_iou = tf.greater(iou,tf.constant(ct.TH_IOU))
 
-		full_mask = tf.multiply(mask,tf.cast(mask_iou,tf.float32))
+		full_mask = tf.multiply(mask_gt,tf.cast(mask_iou,tf.float32))
 
-		A_x = tf.pow(tf.subtract(x_gt,x_pred),tf.constant(2.))
-		A_y = tf.pow(tf.subtract(y_gt,y_pred),tf.constant(2.))
+		A_x = tf.square(tf.subtract(x_gt,x_pred))
+		A_y = tf.square(tf.subtract(y_gt,y_pred))
 		A_sum = tf.add(A_x,A_y)
-		A_filt = tf.multiply(A_sum,full_mask)
+		A_filt = tf.multiply(mask_gt,A_sum)
 		A = tf.reduce_mean(A_filt)
 
-		B_w = tf.pow(tf.subtract(tf.sqrt(w_gt),tf.sqrt(w_pred)),tf.constant(2.))
-		B_h = tf.pow(tf.subtract(tf.sqrt(h_gt),tf.sqrt(h_pred)),tf.constant(2.))
+		B_w = tf.square(tf.subtract(tf.sqrt(w_gt),tf.sqrt(w_pred)))
+		B_h = tf.square(tf.subtract(tf.sqrt(h_gt),tf.sqrt(h_pred)))
 		B_sum = tf.add(B_w,B_h)
-		B_filt = tf.multiply(B_sum,full_mask)
+		B_filt = tf.multiply(mask_gt,B_sum)
 		B = tf.reduce_mean(B_filt)
 
-		C_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
-		C_filt = tf.multiply(C_sub,full_mask)
+		C_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
+		C_filt = tf.multiply(mask_gt,C_sub)
 		C = tf.reduce_mean(C_filt)
 
-		D_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
-		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(full_mask,tf.bool)),tf.float32))
+		D_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
+		D_mask = tf.logical_not(tf.cast(mask_gt,tf.bool))
+		D_filt = tf.multiply(D_sub,tf.cast(D_mask,tf.float32))
 		D = tf.reduce_mean(D_filt)
 
+		"""
 		E_ce = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_gt,logits=pclass_pred)
-		E_filt = tf.multiply(E_ce,full_mask)
+		E_filt = tf.multiply(E_ce,mask)
 		E = tf.reduce_mean(E_filt)
-		
+		"""
+		E_sq = tf.square(tf.subtract(pclass_gt,pclass_pred))
+		E_mask = tf.multiply(mask_gt,E_sq)
+		E = tf.reduce_mean(E_mask)
+
 		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
 
 		return(loss)
