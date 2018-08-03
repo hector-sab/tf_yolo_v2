@@ -1,5 +1,8 @@
 import numpy as np
 
+TH_IOU = 0.6
+TH_OUT_PROB = 0.5
+
 ANCHORS = np.array(
 			[[0.09112895, 0.06958421],
 			 [0.21102316, 0.16803947],

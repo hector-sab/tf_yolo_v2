@@ -7,7 +7,7 @@ from tqdm import tqdm
 import tensorflow as tf
 
 import utils as ut
-from constants import ANCHORS
+import constants as ct
 
 # TODO: Fix __tensorboard dependency 
 
@@ -23,7 +23,7 @@ class Data:
 			lbs_paths_f (str): Path to the file containing all the labels paths
 		"""
 		self.clss2lbl = {'person':15}
-		self.ANCHORS = ANCHORS
+		self.ANCHORS = ct.ANCHORS
 		self.NUM_ANCHORS = self.ANCHORS.shape[0]
 		self.GRID_H = grid_h
 		self.GRID_W = grid_w
@@ -198,7 +198,7 @@ class Trainer:
 				self.model.last_layer().get_shape()[2].value,
 				self.model.last_layer().get_shape()[3].value,
 				6])
-			self.loss = self.__loss2()
+			self.loss = self.__loss3()
 			self.optimizer = self.__optimization()
 			self.save_counter = tf.Variable(0, trainable=False, name='save_counter')
 			self.increase_save_counter = tf.assign(self.save_counter, self.save_counter+1)
@@ -345,6 +345,9 @@ class Trainer:
 		return(loss)
 
 	def __loss2(self):
+		"""
+		https://stats.stackexchange.com/a/332947
+		"""
 		####
 		self.lamb_coord = tf.placeholder_with_default(5.0,[])
 		self.lamb_noobj = tf.placeholder_with_default(0.5,[])
@@ -408,12 +411,82 @@ class Trainer:
 		E_ce = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_gt,logits=pclass_pred)
 		E_filt = tf.multiply(E_ce,mask)
 		E = tf.reduce_mean(E_filt)
-		#E_closs = tf.pow(tf.subtract(pclass_gt,pclass_pred),tf.constant(2.))
-		#E_sum = tf.reduce_sum(E_closs,axis=-1)
-		#E_filt = tf.multiply(E_sum,tf.cast(mask,tf.float32))
-		#E = tf.reduce_mean(E_filt)
 		
 		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
+		return(loss)
+
+	def __loss3(self):
+		####
+		self.lamb_coord = tf.placeholder_with_default(5.0,[])
+		self.lamb_noobj = tf.placeholder_with_default(0.5,[])
+		####
+		
+		#### S: PRED ####
+		pred = self.model.pred_for_loss
+
+		# Normalized centroid
+		x_pred = pred[...,0]
+		y_pred = pred[...,1]
+
+		# Normalized shape
+		w_pred = pred[...,2]
+		h_pred = pred[...,3]
+		
+		bb_coord_pred = ut.pred2coord(x_pred,y_pred,w_pred,h_pred)
+
+		mask = pred[...,4] # Shape [?,13,13,5] as tf.float32
+		pobj_pred = self.model.bb_pobj # Shape [?,13,13,5]
+
+		pclass_pred = pred[...,5:] # Shape [?,13,13,5,20]
+		#### E: PRED ####
+
+		#### S: LBL ####
+		xy_gt = self.labels[...,0:2] # Shape [?,13,13,5,2]
+		x_gt = xy_gt[...,0]
+		y_gt = xy_gt[...,1]
+
+		x_gt,y_gt = ut.predC2grid(x_gt,y_gt,self.GRID_W,self.GRID_H)
+		x_gt,y_gt = ut.grid2norm(x_gt,y_gt,self.GRID_W,self.GRID_H)
+
+		wh_gt = self.labels[...,2:4] # Shape [?,13,13,5,2]
+		w_gt = wh_gt[...,0]
+		h_gt = wh_gt[...,1]
+
+		pobj_gt = self.labels[...,4] # Shape [?,13,13,5]
+		pclass_gt = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
+		#### E: LBL ####
+
+		iou = ut.iou(pred,self.labels[...,:4])
+		mask_iou = tf.greater(iou,tf.constant(ct.TH_IOU))
+
+		full_mask = tf.multiply(mask,tf.cast(mask_iou,tf.float32))
+
+		A_x = tf.pow(tf.subtract(x_gt,x_pred),tf.constant(2.))
+		A_y = tf.pow(tf.subtract(y_gt,y_pred),tf.constant(2.))
+		A_sum = tf.add(A_x,A_y)
+		A_filt = tf.multiply(A_sum,full_mask)
+		A = tf.reduce_mean(A_filt)
+
+		B_w = tf.pow(tf.subtract(tf.sqrt(w_gt),tf.sqrt(w_pred)),tf.constant(2.))
+		B_h = tf.pow(tf.subtract(tf.sqrt(h_gt),tf.sqrt(h_pred)),tf.constant(2.))
+		B_sum = tf.add(B_w,B_h)
+		B_filt = tf.multiply(B_sum,full_mask)
+		B = tf.reduce_mean(B_filt)
+
+		C_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
+		C_filt = tf.multiply(C_sub,full_mask)
+		C = tf.reduce_mean(C_filt)
+
+		D_sub = tf.pow(tf.subtract(pobj_gt,pobj_pred),tf.constant(2.))
+		D_filt = tf.multiply(D_sub,tf.cast(tf.logical_not(tf.cast(mask,tf.bool)),tf.float32))
+		D = tf.reduce_mean(D_filt)
+
+		E_ce = tf.nn.softmax_cross_entropy_with_logits_v2(labels=pclass_gt,logits=pclass_pred)
+		E_filt = tf.multiply(E_ce,full_mask)
+		E = tf.reduce_mean(E_filt)
+		
+		loss = tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + C + tf.multiply(self.lamb_noobj,D) + E
+
 		return(loss)
 
 	def __optimization(self):

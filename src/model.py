@@ -9,7 +9,7 @@ Description: Main model of the architecture Yolo v2.
 
 import numpy as np
 import tensorflow as tf
-from constants import ANCHORS
+import constants as ct
 import utils as ut
 
 def num_gpus():
@@ -180,12 +180,12 @@ class Model(Net):
 		self.tensorboard = tensorboard
 		self.tb_log = tb_log
 
-		self.ANCHORS = ANCHORS
+		self.ANCHORS = ct.ANCHORS
 		self.NUM_ANCHORS = self.ANCHORS.shape[0]
 		self.NUM_OBJECTS = 20
-		self.MAX_DETECTIONS_PER_IMAGE = 10
-		self.THRESHOLD_OUT_PROB = 0.5
-		self.THRESHOLD_IOU_NMS = 0.5
+		#self.MAX_DETECTIONS_PER_IMAGE = 10
+		self.THRESHOLD_OUT_PROB = ct.TH_OUT_PROB
+		#self.THRESHOLD_IOU_NMS = 0.5
 
 		if not sess:
 			self.sess = tf.Session()
