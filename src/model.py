@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 import constants as ct
 import utils as ut
-
+"""
 def num_gpus():
 	from tensorflow.python.client import device_lib
 	local_device_protos = device_lib.list_local_devices()
@@ -25,7 +25,7 @@ if num_gpus() > 0:
 else:
 	DEVICE = '/cpu:0'
 	print('Using CPU')
-
+"""
 
 
 class Net:

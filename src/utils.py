@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
-def iou(bbox1,bbox2):
+def tf_iou(bbox1,bbox2):
 	"""
 	Args:
 		bbox (tf.Tensor): Shape [?,13,13,5,4]
@@ -215,3 +215,231 @@ def plot_ims(ims):
 	for im in ims:
 		plt.imshow(im)
 		plt.show()
+
+
+
+
+
+######
+
+
+class Rectangle:
+	def __init__(self,centroid=None,shape=None,pt1=None,pt2=None):
+		# Define a rectangle given the centroid or 
+		# two points.It uses a ordinary cartesian frame.
+		#
+		# Args:
+		#   centoroid (tuple|np.array): (x,y)
+		#   shape (tuple|np.array): (w,h)
+		#   pt1 (tuple|np.array): (x,y) 
+		#   pt2 (tuple|np.array): (x,y)
+		if centroid is not None and shape is not None:
+			self.centroid = np.array(centroid)
+			self.shape = np.array(shape)
+			
+			self.top_right = self.centroid + self.shape/2
+			self.bottom_left = self.centroid - self.shape/2
+			self.top_left = np.array([self.bottom_left[0],self.top_right[1]])
+			self.bottom_right = np.array([self.top_right[0],self.bottom_left[1]])
+		elif pt1 is not None and pt2 is not None:
+			###
+			pt1 = np.array(pt1)
+			pt2 = np.array(pt2)
+			# Determine top left and bottom right
+			if pt1[0]>pt2[0]:
+				# If pt1 is in the right, change it to the left
+				tmp = pt1[0]
+				pt1[0] = pt2[0]
+				pt2[0] = tmp
+
+			if pt1[1]<pt2[1]:
+				# If pt1 is in the bottom, change it to the top
+				tmp = pt1[1]
+				pt1[1] = pt2[1]
+				pt2[1] = tmp
+			###
+			self.top_left = np.array(pt1)
+			self.bottom_right = np.array(pt2)
+			self.top_right = np.array([self.bottom_right[0],self.top_left[1]])
+			self.bottom_left = np.array([self.top_left[0],self.bottom_right[1]])
+
+			self.centroid = ((self.bottom_right + self.top_left)/2).astype(np.int32)
+			self.shape = self.top_right - self.bottom_left
+		self.area = self.shape[0]*self.shape[1]
+
+def IoU(A,B,rect=False):
+	# Calculates the intersection over union of two rectangles
+	#
+	# Args:
+	#   A|B (Rectangle): Rectangles to be compared
+	#   rect (bool): Returns the iou value  and a rectangle 
+	#      that represents the IoU if True. Else, it 
+	#      returns the iou value.
+
+	# Calculate points of inner intersection
+	top_right = np.minimum(A.top_right,B.top_right)
+	bottom_left = np.maximum(A.bottom_left,B.bottom_left)
+
+	# Calculate shape of Intersection [W,H]
+	shape = np.maximum(top_right-bottom_left,0)
+	# Calculate area of Intersection
+	area = shape[0]*shape[1]
+
+	area_union = A.area + B.area - area
+	iou = area / area_union
+
+	# Define the rectangle of the IoU
+	if iou>0:
+		C = Rectangle(pt1=top_right,pt2=bottom_left)
+	else:
+		C = None
+
+	if rect:
+		return(iou,C)
+	else:
+		return(iou)
+
+class Cosa:
+	# Contains the information of an objecet.
+	# It indicates what type of object is, and
+	# where it is located
+	def __init__(self,clss,pt1,pt2):
+		self.clss = clss
+		self.bbox = Rectangle(pt1,pt2)
+
+class Detections:
+	# Reads the files with the objects descriptions
+	# and stores them in memory in an easy way to access
+	def __init__(self,fpath,format='kitty'):
+		# Formats ['kitty','xml']
+		self.fpath = fpath
+		self.objects = self.file2objects()
+
+	def file2objects(self):
+		# Read the file
+		with open(self.fpath,'r') as f:
+			tmp = f.readlines()
+		objects = []
+
+		# Process each line
+		for line in tmp:
+			line = line.strip('\n')
+			line = line.split(' ')
+			obj = Cosa(clss=line[0],
+				pt1=(int(line[4]),int(line[5])),
+				pt2=(int(line[6]),int(line[7])))
+			objects.append(obj)
+
+		return(objects)
+
+def nms(coord,lbs,ob_mask,pobj,TH=0.6):
+	# coord : shape [?,13,13,5,4]
+	#              [?,Top,Left,Bottom,Right]
+	# lbs : shape [?,13,13,5]
+	# pobj : shape [?,13,13,5]
+	# ob_mask : shape [?,13,13,5]
+	"""
+	print(coord.shape)
+	print(lbs.shape)
+	print(pobj.shape)
+	print(ob_mask.shape)
+	"""
+	# Select all the coord of all valid cells
+	bbox = coord[ob_mask]
+	# Select the labels of all valid cells
+	labels = lbs[ob_mask]
+	# Select the prob of all valid cells
+	probs = pobj[ob_mask]
+	
+	# Let's iterate over all possible classes
+	np.set_printoptions(linewidth=200)
+	nms_bbox = {}
+	for clss in np.unique(labels):
+		cbbox = bbox[labels==clss]
+		cprobs = probs[labels==clss]
+		
+		area_bbox = (cbbox[:,3]-cbbox[:,1])*(cbbox[:,2]-cbbox[:,0])
+
+		# Corroborate that all object of the same type
+		# are not repeated
+		for i in range(cbbox.shape[0]):
+			# Calculate the top-right corner of
+			# the intersection of all bboxes with the
+			# first bbox
+
+			# Chooses the first and last column (x,y)
+			top_right = np.minimum(cbbox[i,2:4][::-1].reshape((1,2)),cbbox[:,2:4][:,::-1])
+			# Chooses the third and second column... 
+			# [:,::-1]-> inverts the 2nd and 3rd selection to be 3rd and 2nd
+			bottom_left = np.maximum(cbbox[i,0:2][::-1].reshape((1,2)),cbbox[:,0:2][:,::-1])
+
+			# Calculate shape of Intersection [W,H]
+			shape = np.maximum(top_right-bottom_left,0)
+			#print(top_right)
+			#print(bottom_left)
+			#print(shape)
+
+			# Calculate area of Intersection
+			area = shape[:,0]*shape[:,1]
+			
+
+			# TODO: Why just overlap and not IoU?
+			overlap = area/area_bbox
+			#overlap[i] = 0
+			"""
+			area_union = area_bbox[i] + area_bbox - area
+			iou = area/area_union
+			"""
+			print(i,overlap)
+			tmp = np.zeros_like(cprobs)
+			tmp[overlap!=0] = cprobs[overlap!=0]
+			print(' ',tmp)
+			print(' ',cprobs)
+			
+
+			# At this point we are going to check which of 
+			# the objects have enough over to be considered 
+			# as the same object
+			repeated_ind = np.argwhere(overlap>TH).reshape(-1)
+
+
+
+			biggest_prob = None
+			biggest_prob_ind = None
+			for ind in repeated_ind:
+				print('  **',biggest_prob,cprobs[ind])
+				if biggest_prob==None:
+					biggest_prob = cprobs[ind]
+					biggest_prob_ind = ind
+				elif biggest_prob<cprobs[ind]:
+					cprobs[biggest_prob_ind] = 0
+					print('    --> GONE1:',biggest_prob_ind)
+					biggest_prob = cprobs[ind]
+					biggest_prob_ind = ind
+				else:
+					cprobs[ind] = 0
+					print('    --> GONE2:',ind)
+
+			print('---')
+
+		nms_bbox[clss] = {'bbox':cbbox,'probs':cprobs}
+		print('\n\n')
+		print(cprobs)
+
+
+	return(nms_bbox)
+
+
+if __name__=='__main__':
+	im_path = '../test_im/im3.jpg'
+	im = load_im(im_path)
+
+	coord = np.load('coord.npy')
+	lbs = np.load('lbs.npy')
+	pobj = np.load('pobj.npy')
+	ob_mask = np.load('ob_mask.npy')
+
+	out = nms(coord,lbs,ob_mask,pobj)
+
+	ims = draw_output(im,coord,lbs,ob_mask,pobj)
+	plot_ims(ims)

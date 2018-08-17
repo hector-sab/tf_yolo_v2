@@ -456,12 +456,10 @@ class Trainer:
 		pclass_gt = tf.one_hot(tf.cast(self.labels[...,5],tf.int32),self.model.NUM_OBJECTS,axis=-1) # Shape [?,13,13,5,25]
 		#### E: LBL ####
 
-		iou = ut.iou(pred,tf.stack([x_gt,y_gt,w_gt,h_gt],axis=-1))
+		iou = ut.tf_iou(pred,tf.stack([x_gt,y_gt,w_gt,h_gt],axis=-1))
 		#print(iou)
 		#print(tf.reduce_max(iou,axis=-1,keepdims=True))
 		mask_iou = tf.greater(iou,tf.constant(ct.TH_IOU))
-
-		full_mask = tf.multiply(mask_gt,tf.cast(mask_iou,tf.float32))
 
 		A_x = tf.square(tf.subtract(x_gt,x_pred))
 		A_y = tf.square(tf.subtract(y_gt,y_pred))
@@ -476,8 +474,8 @@ class Trainer:
 		B = tf.reduce_mean(B_filt)
 
 		C_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
-		#C_mask = tf.multiply(mask_gt,mask_iou)
-		C_filt = tf.multiply(mask_gt,C_sub)
+		C_mask = tf.multiply(mask_gt,mask_iou)
+		C_filt = tf.multiply(C_mask,C_sub)
 		C = tf.reduce_mean(C_filt)
 
 		D_sub = tf.square(tf.subtract(pobj_gt,pobj_pred))
@@ -496,8 +494,8 @@ class Trainer:
 		E_mask = tf.multiply(mask_gt,E_sum)
 		E = tf.reduce_mean(E_mask)
 
-		loss = (tf.multiply(self.lamb_coord,A) + tf.multiply(self.lamb_coord,B) + 
-			tf.multiply(self.lamb_obj,C) + tf.multiply(self.lamb_noobj,D) + E)
+		loss = (tf.multiply(self.lamb_coord,tf.add(A,B)) + tf.multiply(self.lamb_obj,C) + 
+			tf.multiply(self.lamb_noobj,D) + E)
 
 		return(loss)
 

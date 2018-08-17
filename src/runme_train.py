@@ -10,8 +10,8 @@ if __name__=='__main__':
 
 	model = Model(init=False)
 	train_set = Data(ims_paths,lbs_paths)
-	trainer = Trainer(model,train_set,init=True)
-	trainer.optimize(n_iter=20,bs=1)
+	trainer = Trainer(model,train_set,init=False)
+	#trainer.optimize(n_iter=20,bs=1)
 
 	"""
 	vall = tf.global_variables()
