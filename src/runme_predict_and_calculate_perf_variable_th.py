@@ -20,7 +20,7 @@ if __name__=='__main__':
 	# Controls minimum iou th for the nms
 	sTH = np.linspace(0,1,21)
 
-	if False:
+	if True:
 		model = Model()
 
 		# Loads the images paths

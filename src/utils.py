@@ -582,7 +582,7 @@ def compare_kitti_files(gt_path,pred_path,TH=0.5):
 				num_gt_with_no_corr = gt_coord.shape[0]
 
 			results_per_class[clss] = {'correspondence':0,
-			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondece_with_pred':num_pred_with_no_corr}
+			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondence_with_pred':num_pred_with_no_corr}
 		else:
 			# Which iou are valid ious for our purpose
 			valid_iou = iou>=TH
@@ -612,7 +612,7 @@ def compare_kitti_files(gt_path,pred_path,TH=0.5):
 
 
 			results_per_class[clss] = {'correspondence':num_gt_pred_corr,
-			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondece_with_pred':num_pred_with_no_corr}
+			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondence_with_pred':num_pred_with_no_corr}
 
 	return(results_per_class)
 
@@ -631,7 +631,7 @@ def compare_kitti_files_folder(gt_dir,pred_dir,TH=0.5):
 
 	# In here we are going to count how many of each one per class
 	# Each class shuld have a dict as follow
-	# {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+	# {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondence_with_pred':0}
 	results = {}
 
 
@@ -647,11 +647,11 @@ def compare_kitti_files_folder(gt_dir,pred_dir,TH=0.5):
 			
 			for clss in out.keys():
 				if clss not in list(results.keys()):
-					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondence_with_pred':0}
 				# Update the count
 				results[clss]['correspondence'] += out[clss]['correspondence']
 				results[clss]['no_correspondence_with_gt'] += out[clss]['no_correspondence_with_gt']
-				results[clss]['no_correspondece_with_pred'] += out[clss]['no_correspondece_with_pred']
+				results[clss]['no_correspondence_with_pred'] += out[clss]['no_correspondence_with_pred']
 		else:
 			# If file only found in the gt list
 			out = Detections2(os.path.join(gt_dir,file))
@@ -660,7 +660,7 @@ def compare_kitti_files_folder(gt_dir,pred_dir,TH=0.5):
 			for clss in all_clss:
 
 				if clss not in list(results.keys()):
-					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondence_with_pred':0}
 
 				results[clss]['no_correspondence_with_gt'] += out.objects['coord'][out.objects['classes']==clss,:].shape[0]
 
@@ -673,7 +673,7 @@ def compare_kitti_files_folder(gt_dir,pred_dir,TH=0.5):
 			all_clss = np.unique(out.objects['classes'])
 			for clss in all_clss:
 				if clss not in list(results.keys()):
-					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondence_with_pred':0}
 
 				results[clss]['no_correspondence_with_pred'] += out.objects['coord'][out.objects['classes']==clss,:].shape[0]
 
