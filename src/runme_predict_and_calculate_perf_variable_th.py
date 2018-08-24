@@ -41,6 +41,7 @@ if __name__=='__main__':
 				filtered_objects = ut.nms_yolo(coord,lbs,ob_mask,pobj,TH=s)
 				ut.prediction2kitti2(filtered_objects,final_out_dir,[imfpath[:-3]+'txt'])
 				pbar.update(1)
+	pbar.close()
 
 	# Calculate performance
 	gt_dir = im_dir
@@ -57,9 +58,9 @@ if __name__=='__main__':
 		for s in sTH:
 			pred_dir = out_dir.format(t_name,p,s)
 			out = ut.compare_kitti_files_folder(gt_dir,pred_dir)
-			results['p-{}_s-{}'.format(p,s)] = out
 			results['p-{:.2f}_s-{:.2f}'.format(p,s)] = out
 			pbar.update(1)
+	pbar.close()
 
 	with open('full_results.pk','w') as f:
 		pickle.dump(results,f)
