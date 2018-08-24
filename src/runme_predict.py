@@ -23,7 +23,8 @@ if __name__=='__main__':
 	np.save('ob_mask',ob_mask)
 	np.save('pobj',pobj)
 
-	ut.nms(coord,lbs,ob_mask,pobj)
+	filtered_objects = ut.nms(coord,lbs,ob_mask,pobj)
 
-	ims = ut.draw_output(im,coord,lbs,ob_mask,pobj)
+	#ims = ut.draw_output(im,coord,lbs,ob_mask,pobj)
+	ims = ut.draw_output2(im,filtered_objects)
 	ut.plot_ims(ims)

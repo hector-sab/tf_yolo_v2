@@ -1,7 +1,10 @@
+import os
 import cv2
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
+
+import constants as ct
 
 def tf_iou(bbox1,bbox2):
 	"""
@@ -186,7 +189,38 @@ def draw_output(ims,coord,lbs,ob_mask,pobj=None):
 		ims_out[i] = im
 	return(ims_out)
 
-def load_im(path,im_h=416,im_w=416):
+def draw_output2(ims,batch):
+	# Draws the bboxes detected in the images
+	# Args:
+	#   im (np.array): It should contain a batch of images to be 
+	#       drawn. Shape [?,im_h,im_w,im_c]
+	#   batch (list): Contain all the bboxes and probs of the batch
+	#       each elemenet of the list is a dict with two keys: 
+	#       'bboxes', and 'probs'
+	#
+	#       'bboxes' (np.array): Contain the coords of the objects.
+	#               The shape of the array is [?,4]. 
+	#               [Top,Left,Bottom,Right]
+	#        'probs' (np.array): Contain the probs of each object.
+	#               The shape of the array is [?]
+	num_elems = ims.shape[0]
+	ims_out = np.zeros_like(ims)
+
+	for i in range(num_elems):
+		im = ims[i]
+		classes = batch[i].keys()
+		for clss in classes:
+			num_bboxes = batch[i][clss]['bboxes'].shape[0]
+			for j in range(num_bboxes):
+				bbox = batch[i][clss]['bboxes'][j]
+				prob = batch[i][clss]['probs'][j]
+
+				im = cv2.rectangle(im,(bbox[1],bbox[0]),(bbox[3],bbox[2]),color=(255, 0, 0), thickness=3)
+
+		ims_out[i] = im
+	return(ims_out)
+
+def load_im(path,new_shape=None):
 	"""
 	Loads the image to be used in the YOLO v2 model.
 
@@ -194,15 +228,16 @@ def load_im(path,im_h=416,im_w=416):
 
 	Args:
 		path (str): Indicates where to find the image
-		im_h (int): Height of the output image
-		im_w (int): Width of the output image
+		new_shape (int tuple): If the image should be 
+		   reshaped, indicate it here as (height,width)
 	"""
-	img = cv2.imread(path)
-	img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-	img = cv2.resize(img, (im_h, im_w))
-	img = (img / 255.).astype(np.float32)
-	img = np.expand_dims(img, 0)
-	return(img)
+	im = cv2.imread(path)
+	im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+	if new_shape is not None:
+		im = cv2.resize(im, (new_shape[0], new_shape[1]))
+	im = (im / 255.).astype(np.float32)
+	im = np.expand_dims(im, 0)
+	return(im)
 
 def plot_ims(ims):
 	"""
@@ -215,6 +250,93 @@ def plot_ims(ims):
 	for im in ims:
 		plt.imshow(im)
 		plt.show()
+
+
+
+
+
+
+def prediction2kitti(coords,lbs,ob_mask,dest,fname):
+	num_pred = coords.shape[0]
+
+	for i in range(num_pred):
+		bmask = ob_mask[i] # Boolean mask  indicating which anchor has an object
+		cmask = np.sum(ob_mask[i],axis=-1) # Cell mask indicating which cell contains an obj 
+			                              # at any of its anchors
+
+		lines = []
+		#print('--->',cmask.shape)
+		# Iterate over all cells 
+		for ii,crow in enumerate(cmask):
+			for jj,cell in enumerate(crow):
+				if cell>0:
+					# At this point there's at least one object
+					# detected in this cell
+					for kk,anc in enumerate(bmask[ii,jj]):
+						if anc:
+							# [y_max,x_max,y_min,x_min]
+							bbox = coord[i,ii,jj,kk]
+							lbl = lbs[i,ii,jj,kk]
+
+							# [x_min,y_min,x_max,y_max]
+							line = '{0} 0.0 0 0.0 {1} {2} {3} {4} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n'
+							line = line.format(ct.OBJECTS[lbl],int(bbox[1]),int(bbox[0]),int(bbox[3]),int(bbox[2]))
+							lines.append(line)
+
+		# Save lines into a file
+		with open(dest+fname,'w+') as f:
+			for line in lines:
+				f.write(line)
+
+def prediction2kitti2(batch,dest,fnames):
+	# Converts the predictions to a kitti file
+	# Args:
+	#   batch (list): Each element is a dictionary containing
+	#      the 'bboxes' for each class object
+	#      I.E = [{15:{'bboxes':np.array([[int,int,int,int]])},
+	#              16:{'bboxes':np.array([[int,int,int,int]])}}]
+	#
+	#        where 15,16 are the classes they represent
+	#
+	#   dest (str): Destitation folder of the file
+	#   fnames (list): Contains all the names of the files
+
+	num_elems = len(batch)
+
+	# Iterate over all the elements of the batch
+	for i in range(num_elems):
+		lines = [] # Lines of text to be saved in the file
+		# Iterate over all the classes in the element
+		for clss in batch[i].keys():
+			# Iterate over all the objects of the class
+			for j in range(batch[i][clss]['bboxes'].shape[0]):
+				bbox = batch[i][clss]['bboxes'][j]
+				line = '{0} 0.0 0 0.0 {1} {2} {3} {4} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n'
+				line = line.format(ct.OBJECTS[clss],int(bbox[1]),int(bbox[0]),int(bbox[3]),int(bbox[2]))
+				lines.append(line)
+
+		# Save lines into a file if it contains something
+		if len(lines)>0:
+			with open(dest+fnames[i],'w+') as f:
+				for line in lines:
+					f.write(line)
+
+
+
+
+def check_valid_files(files,fmt='txt'):
+	# Checks that only the files with the specified format
+	# are returned
+	# Args:
+	#   files (list): Contains the path of the files of interest
+	#   fmt (str): What's the format extension of interest
+
+	vfiles = []
+	for fpath in files:
+		if fpath[-1*len(fmt):]==fmt:
+
+			vfiles.append(fpath)
+	return(vfiles)
 
 
 
@@ -299,6 +421,63 @@ def IoU(A,B,rect=False):
 	else:
 		return(iou)
 
+def IoU2(coordA,coordB):
+	# Calculates the intersection over union of two different
+	# sets of coord
+	#   Args:
+	#     coordA (np.array): Coord of each object. Shape [?,4]
+	#        [Top,Left,Bottom,Right]
+	#     coordB (np.array): Same as coordA
+	#
+	# It returns a matrix I with the IoUs of shape MxN, where M is the number of coords
+	# in coordA and N is the number of coords in coordB. 
+	# So, the row r in I represents the coord r in coordA, and the col c in I represents
+	# the coord c in coordB.
+	#
+	# A_{} :-> coordA_{} .... B_{} :-> coordB_{}
+	#
+	# coordA = A_{0} [[a00, a01, a02, a03],    coordB = B_{0}  [[b00, b01, b02, b03],
+	#          A_{1} [a10, a11, a12, a13],              B_{1}   [b10, b11, b12, b13]]
+	#          A_{2} [a20, a21, a22, a23]]
+	#
+	#                    B_{0}   B_{1}
+	# I =       A_{0}  [[iou00, iou01],
+	#           A_{1}   [iou10, iou11],
+	#           A_{2}   [iou20, iou21]]  
+
+	if coordA.shape[0]==0 or coordB.shape[0]==0:
+		# If there's no objects to compare
+		iou = None
+	else:
+		# Calculate the area of each box in each set
+		areaA = (coordA[:,3]-coordA[:,1])*(coordA[:,2]-coordA[:,0])
+		areaB = (coordB[:,3]-coordB[:,1])*(coordB[:,2]-coordB[:,0])
+
+		# Determine the IoU of each object
+		# Horizontal axis represent the predicted bboxes
+		# Vertical axis represents the gt bboxes
+
+		# Chooses the top (in image coord frame) position among all
+		top = np.maximum(coordA[:,0:1],coordB[:,0])
+		# Chooses the right position among all
+		right = np.minimum(coordA[:,3:4],coordB[:,3])
+		# Chooses the bottom (in image coord frame) position among all
+		bottom = np.minimum(coordA[:,2:3],coordB[:,2])
+		# Chooses the left position among all
+		left = np.maximum(coordA[:,1:2],coordB[:,1])
+
+		# Calculate the shape
+		# Calculate the height
+		height = np.maximum(bottom - top,0)
+		# Calculate the width
+		width = np.maximum(right - left,0)
+
+		area_inters = height*width
+		area_union = areaA.reshape(-1,1) + areaB - area_inters
+		iou = area_inters/area_union
+
+	return(iou)
+
 class Cosa:
 	# Contains the information of an objecet.
 	# It indicates what type of object is, and
@@ -332,114 +511,258 @@ class Detections:
 
 		return(objects)
 
-def nms(coord,lbs,ob_mask,pobj,TH=0.6):
+class Detections2:
+	# Reads the files with the objects descriptions
+	# and stores them in memory in an easy way to access
+	def __init__(self,fpath,format='kitty'):
+		# Formats ['kitty','xml']
+		self.fpath = fpath
+		self.objects = self.file2objects()
+
+	def file2objects(self):
+		# Read the file
+		with open(self.fpath,'r') as f:
+			tmp = f.readlines()
+		coords = []
+		clss = []
+
+		# Process each line
+		for line in tmp:
+			line = line.strip('\n')
+			line = line.split(' ')
+			coords.append([int(line[4]),int(line[5]),
+				int(line[6]),int(line[7])])
+			clss.append(ct.OBJECTS.index(line[0]))
+
+		return({'coord':np.array(coords),'classes':np.array(clss)})
+
+
+
+def compare_kitti_files(gt_path,pred_path,TH=0.5):
+	# Determines the number of correspondences between two files
+	# for each class.
+	#
+	# Returns a dictionary of dictionaries. The main dict contain the
+	# classes analysed, and the inner one of each class contains three
+	# fields: 
+	#   - 'correspondence': How many correspondences where found
+	#   - 'no_correspondence_with_gt': How many ground truth bboxes
+	#         didn't find a correspondence
+	#   - 'no_correspondence_wiht_pred': How many predicted bboxes didn't
+	#         find a correspondence
+
+	# Load the objects of each file
+	gt = Detections2(gt_path)
+	pred = Detections2(pred_path)
+
+	# Merge all the classes predicted and the ground truth classes
+	clss_gt = gt.objects['classes']
+	clss_pred = pred.objects['classes']
+	all_clss = np.unique(np.hstack([clss_gt,clss_pred]))
+
+	# It stores the results
+	results_per_class = {} 
+	# Iterate over all classes 
+	for clss in all_clss:
+		# Get the coord of the gt/pred for the class
+		gt_coord = gt.objects['coord'][gt.objects['classes']==clss,:]
+		pred_coord = pred.objects['coord'][pred.objects['classes']==clss,:]
+
+		# Calculate IoU and make sure they are valid
+		iou = IoU2(gt_coord,pred_coord)
+		
+		if iou is None:
+			# If there is no objects to make a comparision
+			# add them directly to its corresponding container
+			if gt_coord.shape[0]==0:
+				num_gt_with_no_corr = 0
+				num_pred_with_no_corr = pred_coord.shape[0]
+			elif pred_coord.shape[0]==0:
+				num_pred_with_no_corr = 0
+				num_gt_with_no_corr = gt_coord.shape[0]
+
+			results_per_class[clss] = {'correspondence':0,
+			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondece_with_pred':num_pred_with_no_corr}
+		else:
+			# Which iou are valid ious for our purpose
+			valid_iou = iou>=TH
+
+			# Check how many gt were found, and how many weren't
+			gt_contains_correspondanse = np.sum(valid_iou,axis=1)>0
+
+			# Select only the objects that can be valid based on their iou
+			same_gt_pred_obj = iou*valid_iou
+			# Select only the objects that really have a correspondance with gt and pred
+			same_gt_pred_obj = same_gt_pred_obj[gt_contains_correspondanse!=0]
+			# Indicates the index of the gt bboxes that have a correspondance
+			ind_valid_gt = np.argwhere(gt_contains_correspondanse).reshape(-1)
+			# Indicates which pred bbox correspond to which gt bbox
+			# The index of the element correspond to the gt element of the ind_valid_gt
+			ind_correspondence = np.argmax(same_gt_pred_obj,axis=1)
+			# Indicates what's the iou of the correspondences
+			iou_correspondence = same_gt_pred_obj[np.arange(same_gt_pred_obj.shape[0]),ind_correspondence]
+
+			# How many gt and pred bboxes where found?
+			num_gt_pred_corr = ind_valid_gt.shape[0]
+			# How many gt didn't have a correspondence
+			num_gt_with_no_corr = np.argwhere(gt_contains_correspondanse==False).reshape(-1)
+			num_gt_with_no_corr = num_gt_with_no_corr.shape[0]
+			# How many pred didn't have a correspondence
+			num_pred_with_no_corr = pred_coord.shape[0] - num_gt_pred_corr
+
+
+			results_per_class[clss] = {'correspondence':num_gt_pred_corr,
+			    'no_correspondence_with_gt':num_gt_with_no_corr,'no_correspondece_with_pred':num_pred_with_no_corr}
+
+	return(results_per_class)
+
+def compare_kitti_files_folder(gt_dir,pred_dir,TH=0.5):
+	# Compares all the files in a single folder of gt and pred for each one
+	#   Args:
+	#     gt_dir (str): path to the folder containing the ground truth
+	#     pred_dir (str): path to the folder containing the predictions
+
+	# Load the file paths
+	gt_files = sorted(os.listdir(gt_dir))
+	pred_files = sorted(os.listdir(pred_dir))
+
+	gt_files = check_valid_files(gt_files)
+	pred_files = check_valid_files(pred_files)
+
+	# In here we are going to count how many of each one per class
+	# Each class shuld have a dict as follow
+	# {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+	results = {}
+
+
+	# In here we are going to track the files already found, or not.
+	files_found = []
+	
+	# Compare each file
+	for file in gt_files:
+		if file in pred_files:
+			# If the file exists in both lists
+			files_found.append(file)
+			out = compare_kitti_files(os.path.join(gt_dir,file),os.path.join(pred_dir,file),TH)
+			
+			for clss in out.keys():
+				if clss not in list(results.keys()):
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+				# Update the count
+				results[clss]['correspondence'] += out[clss]['correspondence']
+				results[clss]['no_correspondence_with_gt'] += out[clss]['no_correspondence_with_gt']
+				results[clss]['no_correspondece_with_pred'] += out[clss]['no_correspondece_with_pred']
+		else:
+			# If file only found in the gt list
+			out = Detections2(os.path.join(gt_dir,file))
+
+			all_clss = np.unique(out.objects['classes'])
+			for clss in all_clss:
+
+				if clss not in list(results.keys()):
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+
+				results[clss]['no_correspondence_with_gt'] += out.objects['coord'][out.objects['classes']==clss,:].shape[0]
+
+	# Remove all the files found in pred
+	for file in pred_files:
+		if file not in files_found:
+			# If file only exists in the pred list
+			out = Detections2(os.path.join(pred_dir,file))
+
+			all_clss = np.unique(out.objects['classes'])
+			for clss in all_clss:
+				if clss not in list(results.keys()):
+					results[clss] = {'correspondence':0,'no_correspondence_with_gt':0,'no_correspondece_with_pred':0}
+
+				results[clss]['no_correspondence_with_pred'] += out.objects['coord'][out.objects['classes']==clss,:].shape[0]
+
+	return(results)
+
+def nms(coord,probs,TH=0.8):
+	# Non-Maxima Suppression
+	#  Args:
+	#    coord (np.array): Shape [?,4]
+	#      [Top,Left,Bottom,Right]
+	#    probs (np.array): Shape: [?]
+	#
+	# Returns the coord and probs of the filtered objects
+	iou = IoU2(coord,coord)
+	valid_iou = iou>=TH
+
+	# Checks if the iou of a cell has multiple repetitions in different rows
+	inspect_col = np.sum(valid_iou,axis=0)>1
+	inspect_row = np.sum(valid_iou,axis=1)>1
+
+	# List of ind of the real objects
+	real_objects = []
+	# Retrieve the ind of the rows!=0 in the col==True
+	rows_already_checked = []
+	# Iterate over all rows to assert the bboxes to be inspected
+	for i in range(valid_iou.shape[0]):
+		#print('->',i)
+		if i not in rows_already_checked:
+			# There's more than one bbox in the same row
+			# Which cols of those rows have repetition?
+			ind_col = np.argwhere(valid_iou[i,:])
+
+			rows_same = [] # Which rows should be merged
+			rows_same.append(i)
+			for j in ind_col:
+				# Check if the col j as repetitions
+				j = j[0]
+				if inspect_col[j]:
+					# Check the rows that are repeating in the col
+					rows = np.argwhere(valid_iou[:,j]).reshape(-1)
+					rows_same.extend(rows.tolist())
+
+			# Clean the list. Remove the repeated ones
+			rows_same = np.unique(np.array(rows_same)).tolist()
+
+			# Add it to the list of already explored
+			rows_already_checked.extend(rows_same)
+
+			# Merge the rows_same into a signgle row
+			current_row = np.sum(valid_iou[rows_same],axis=0).astype(np.bool)
+
+			real_object = np.argmax(probs*current_row)
+			real_objects.append(real_object)
+
+			real_prob = probs[np.argmax(probs*current_row)]
+	
+	real_objects = np.array(real_objects)
+
+	return(coord[real_objects,:],probs[real_objects])
+
+def nms_yolo(coord,lbs,ob_mask,prob,TH=0.8):
+	# Non-Maxima Suppression
 	# coord : shape [?,13,13,5,4]
 	#              [?,Top,Left,Bottom,Right]
 	# lbs : shape [?,13,13,5]
 	# pobj : shape [?,13,13,5]
 	# ob_mask : shape [?,13,13,5]
-	"""
-	print(coord.shape)
-	print(lbs.shape)
-	print(pobj.shape)
-	print(ob_mask.shape)
-	"""
-	# Select all the coord of all valid cells
-	bbox = coord[ob_mask]
-	# Select the labels of all valid cells
-	labels = lbs[ob_mask]
-	# Select the prob of all valid cells
-	probs = pobj[ob_mask]
-	
-	# Let's iterate over all possible classes
-	np.set_printoptions(linewidth=200)
-	nms_bbox = {}
-	for clss in np.unique(labels):
-		cbbox = bbox[labels==clss]
-		cprobs = probs[labels==clss]
+
+	nms_elements = []
+	for elem in range(coord.shape[0]):
+		# Select all the coord of all valid cells
+		bbox = coord[elem][ob_mask[elem]]
+		# Select the labels of all valid cells
+		labels = lbs[elem][ob_mask[elem]]
+		# Select the prob of all valid cells
+		probs = prob[elem][ob_mask[elem]]
 		
-		area_bbox = (cbbox[:,3]-cbbox[:,1])*(cbbox[:,2]-cbbox[:,0])
+		# Let's iterate over all possible classes
+		nms_bbox = {}
+		for clss in np.unique(labels):
+			# Obtain the bboxes and probs of objects of the same class
+			cbbox = bbox[labels==clss] # Shape: [?,4]
+			cprobs = probs[labels==clss] # Shape: [?]
 
-		# Corroborate that all object of the same type
-		# are not repeated
-		for i in range(cbbox.shape[0]):
-			# Calculate the top-right corner of
-			# the intersection of all bboxes with the
-			# first bbox
+			filt_coord,filt_prob = nms(cbbox,cprobs,TH)
+			nms_bbox[clss] = {'bboxes':filt_coord,'probs':filt_prob}
 
-			# Chooses the first and last column (x,y)
-			top_right = np.minimum(cbbox[i,2:4][::-1].reshape((1,2)),cbbox[:,2:4][:,::-1])
-			# Chooses the third and second column... 
-			# [:,::-1]-> inverts the 2nd and 3rd selection to be 3rd and 2nd
-			bottom_left = np.maximum(cbbox[i,0:2][::-1].reshape((1,2)),cbbox[:,0:2][:,::-1])
-
-			# Calculate shape of Intersection [W,H]
-			shape = np.maximum(top_right-bottom_left,0)
-			#print(top_right)
-			#print(bottom_left)
-			#print(shape)
-
-			# Calculate area of Intersection
-			area = shape[:,0]*shape[:,1]
-			
-
-			# TODO: Why just overlap and not IoU?
-			overlap = area/area_bbox
-			#overlap[i] = 0
-			"""
-			area_union = area_bbox[i] + area_bbox - area
-			iou = area/area_union
-			"""
-			print(i,overlap)
-			tmp = np.zeros_like(cprobs)
-			tmp[overlap!=0] = cprobs[overlap!=0]
-			print(' ',tmp)
-			print(' ',cprobs)
-			
-
-			# At this point we are going to check which of 
-			# the objects have enough over to be considered 
-			# as the same object
-			repeated_ind = np.argwhere(overlap>TH).reshape(-1)
-
-
-
-			biggest_prob = None
-			biggest_prob_ind = None
-			for ind in repeated_ind:
-				print('  **',biggest_prob,cprobs[ind])
-				if biggest_prob==None:
-					biggest_prob = cprobs[ind]
-					biggest_prob_ind = ind
-				elif biggest_prob<cprobs[ind]:
-					cprobs[biggest_prob_ind] = 0
-					print('    --> GONE1:',biggest_prob_ind)
-					biggest_prob = cprobs[ind]
-					biggest_prob_ind = ind
-				else:
-					cprobs[ind] = 0
-					print('    --> GONE2:',ind)
-
-			print('---')
-
-		nms_bbox[clss] = {'bbox':cbbox,'probs':cprobs}
-		print('\n\n')
-		print(cprobs)
-
-
-	return(nms_bbox)
-
+		nms_elements.append(nms_bbox)
+	return(nms_elements)
 
 if __name__=='__main__':
-	im_path = '../test_im/im3.jpg'
-	im = load_im(im_path)
-
-	coord = np.load('coord.npy')
-	lbs = np.load('lbs.npy')
-	pobj = np.load('pobj.npy')
-	ob_mask = np.load('ob_mask.npy')
-
-	out = nms(coord,lbs,ob_mask,pobj)
-
-	ims = draw_output(im,coord,lbs,ob_mask,pobj)
-	plot_ims(ims)
+	pass
