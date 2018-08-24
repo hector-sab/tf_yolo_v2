@@ -5,13 +5,13 @@ from model import Model
 from train import Trainer,Data
 
 if __name__=='__main__':
-	ims_paths = '../test_train/0_ims_paths.txt'
-	lbs_paths = '../test_train/0_lbs_paths.txt'
+	ims_paths = '../test_train/ims.txt'
+	lbs_paths = '../test_train/lbs.txt'
 
 	model = Model(init=False)
 	train_set = Data(ims_paths,lbs_paths)
-	trainer = Trainer(model,train_set,init=False)
-	#trainer.optimize(n_iter=20,bs=1)
+	trainer = Trainer(model,train_set,init=True)
+	trainer.optimize(n_epochs=20,bs=32)
 
 	"""
 	vall = tf.global_variables()

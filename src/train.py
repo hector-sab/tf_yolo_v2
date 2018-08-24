@@ -417,7 +417,7 @@ class Trainer:
 
 	def __loss3(self):
 		####
-		self.lamb_coord = tf.placeholder_with_default(1.0,[])
+		self.lamb_coord = tf.placeholder_with_default(10.0,[])
 		self.lamb_obj = tf.placeholder_with_default(5.0,[])
 		self.lamb_noobj = tf.placeholder_with_default(1.0,[])
 		####
