@@ -685,8 +685,11 @@ def nms(coord,probs,TH=0.8):
 	#    coord (np.array): Shape [?,4]
 	#      [Top,Left,Bottom,Right]
 	#    probs (np.array): Shape: [?]
+	#    TH (float): The minimum intersection over union of
+	#       the bboxes to be considered possible same objects
 	#
 	# Returns the coord and probs of the filtered objects
+	np.set_printoptions(linewidth=200,precision=2)
 	iou = IoU2(coord,coord)
 	valid_iou = iou>=TH
 
@@ -705,7 +708,6 @@ def nms(coord,probs,TH=0.8):
 			# There's more than one bbox in the same row
 			# Which cols of those rows have repetition?
 			ind_col = np.argwhere(valid_iou[i,:])
-
 			rows_same = [] # Which rows should be merged
 			rows_same.append(i)
 			for j in ind_col:
@@ -741,6 +743,7 @@ def nms_yolo(coord,lbs,ob_mask,prob,TH=0.8):
 	# lbs : shape [?,13,13,5]
 	# pobj : shape [?,13,13,5]
 	# ob_mask : shape [?,13,13,5]
+	# TH (float): Minimum intersection over union
 
 	nms_elements = []
 	for elem in range(coord.shape[0]):

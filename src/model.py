@@ -184,7 +184,8 @@ class Model(Net):
 		self.NUM_ANCHORS = self.ANCHORS.shape[0]
 		self.NUM_OBJECTS = 20
 		#self.MAX_DETECTIONS_PER_IMAGE = 10
-		self.THRESHOLD_OUT_PROB = ct.TH_OUT_PROB
+		#self.THRESHOLD_OUT_PROB = ct.TH_OUT_PROB
+		self.THRESHOLD_OUT_PROB = tf.placeholder_with_default(ct.TH_OUT_PROB,shape=[])
 		#self.THRESHOLD_IOU_NMS = 0.5
 
 		if not sess:
@@ -329,15 +330,19 @@ class Model(Net):
 		"""
 		self.writer = tf.summary.FileWriter(self.tb_log,self.sess.graph)
 
+	def predict(self,ims,TH_prob=None):
+		# ims (np.array): Contain a batch of images. Shape [?,IM_H,IM_W,IM_C]
+		# TH_prob (float): What's the minimum probability of an object to be considered
+		#      as an object
 
-	def predict(self,ims):
-		"""
-		ims (np.array): Contain a batch of images. Shape [?,IM_H,IM_W,IM_C]
-		"""
-		# Use __post_model2
 		# TODO: Fix pobj to return the prob of the detected objects
-		coord,lbs,ob_mask,pobj = self.sess.run([self.bb_coord,self.bb_lbs,
-			self.bb_mask,self.bb_pobj],feed_dict={self.inputs:ims})
+		if TH_prob is None:
+			coord,lbs,ob_mask,pobj = self.sess.run([self.bb_coord,self.bb_lbs,
+				self.bb_mask,self.bb_pobj],feed_dict={self.inputs:ims})
+		else:
+			coord,lbs,ob_mask,pobj = self.sess.run([self.bb_coord,self.bb_lbs,
+				self.bb_mask,self.bb_pobj],feed_dict={self.inputs:ims,
+				self.THRESHOLD_OUT_PROB:TH_prob})
 
 		return(coord,lbs,ob_mask,pobj)
 
@@ -411,7 +416,7 @@ class Model(Net):
 
 		# Lets make a mask to identify which of all the cells actually have 
 		# a detected object
-		self.bb_mask = tf.greater(pobj,tf.constant(self.THRESHOLD_OUT_PROB))
+		self.bb_mask = tf.greater(pobj,self.THRESHOLD_OUT_PROB)
 		#ob_mask = tf.multiply(tf.cast(ob_mask,tf.float32),pobj)
 
 		##### Lets just give coordinates

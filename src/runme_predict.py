@@ -9,21 +9,21 @@ if __name__=='__main__':
 	im_path = '../test_im/im3.jpg'
 	print('Im path: ',im_path)
 
-	im = ut.load_im(im_path)
+	im = ut.load_im(im_path,new_shape=(416,416))
 	print('-->',im.shape)
 	
-	coord,lbs,ob_mask,pobj = model.predict(im)
+	coord,lbs,ob_mask,pobj = model.predict(im,TH_prob=0.9)
 	print('coord Shape: {}'.format(coord.shape))
 	print('lbs Shape: {}'.format(lbs.shape))
 	print('ob_mask Shape: {}'.format(ob_mask.shape))
 
 	import numpy as np
-	np.save('coord',coord)
-	np.save('lbs',lbs)
-	np.save('ob_mask',ob_mask)
-	np.save('pobj',pobj)
+	# np.save('coord',coord)
+	# np.save('lbs',lbs)
+	# np.save('ob_mask',ob_mask)
+	# np.save('pobj',pobj)
 
-	filtered_objects = ut.nms(coord,lbs,ob_mask,pobj)
+	filtered_objects = ut.nms_yolo(coord,lbs,ob_mask,pobj,TH=0.4)
 
 	#ims = ut.draw_output(im,coord,lbs,ob_mask,pobj)
 	ims = ut.draw_output2(im,filtered_objects)
