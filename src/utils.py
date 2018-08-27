@@ -536,6 +536,42 @@ class Detections2:
 
 		return({'coord':np.array(coords),'classes':np.array(clss)})
 
+def count_total_objects(fdir,format='kitty'):
+	# Counts the number of objects contained in files in the 
+	# directory fdir. 
+	#
+	# Args:
+	#   fdir (str): Where are the files located
+	#   format (str): In which format the information was saved.
+	#
+	# Returns a the total count of objects and a dictionary containing
+	# the count per object
+	
+	# Reads the directory fdir and counts the total number of objects
+	fnames = sorted(os.listdir(fdir))
+	fnames = check_valid_files(fnames,'txt')
+
+	# count contains all the count of objects by class
+	count = {}
+	total_count = 0
+
+	for fname in fnames:
+		out = Detections2(fdir+fname)
+		
+		classes = np.unique(out.objects['classes'])
+
+		for clss in classes:
+			if clss not in list(count.keys()):
+				count[clss] = 0
+			num_objs = np.sum(out.objects['classes']==clss)
+
+			count[clss] += num_objs
+			total_count += num_objs
+
+	return(total_count,count)
+
+
+
 
 
 def compare_kitti_files(gt_path,pred_path,TH=0.5):
